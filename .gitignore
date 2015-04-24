@@ -14,3 +14,11 @@ platform/*/config.mk
 platform/*/tests/hello/hello
 platform/*/tests/hello/hellopp
 platform/*/tests/wopr/wopr
+
+*.a
+*.d
+*.depend
+app-tools/*
+src-netbsd/*
+platform/baremetal/include/bmk/machine
+tests/*
