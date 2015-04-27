@@ -187,9 +187,14 @@ parsemem(uint32_t addr, uint32_t len)
 void
 bmk_main(struct multiboot_info *mbi)
 {
+	static char cmdline[2048];
 
 	bmk_printf_init(bmk_cons_putc, NULL);
 	bmk_core_init(BMK_THREAD_STACK_PAGE_ORDER, PAGE_SIZE);
+
+	if (bmk_strlen((char *)mbi->cmdline) > sizeof(cmdline)-1)
+		bmk_platform_halt("command line too long"); /* XXX */
+	bmk_memcpy(cmdline, (char *)mbi->cmdline, sizeof(cmdline));
 
 	bmk_printf("rump kernel bare metal bootstrap\n\n");
 	if ((mbi->flags & MULTIBOOT_MEMORY_INFO) == 0) {
@@ -202,7 +207,7 @@ bmk_main(struct multiboot_info *mbi)
 	bmk_isr_init();
 
 	/* enough bootstrap already, jump to main thread */
-	bmk_sched_init(bmk_mainthread, NULL);
+	bmk_sched_init(bmk_mainthread, cmdline);
 }
 
 /*
@@ -238,6 +243,8 @@ bmk_cons_putc(int c)
 		doclear = 1;
 	} else if (c == '\r') {
 		cons_x = 0;
+	} else if (c == '\t') {
+		cons_x = (cons_x+8) & ~7;
 	} else {
 		cons_putat(c, cons_x++, cons_y);
 	}
@@ -258,15 +265,6 @@ bmk_cons_putc(int c)
 	}
 }
  
-/* display a string */
-void
-bmk_cons_puts(const char *str)
-{
-
-	for (; *str; str++)
-		bmk_cons_putc(*str);
-}
-
 /*
  * init.  currently just clears the console.
  * rest is done in bmk_main()
