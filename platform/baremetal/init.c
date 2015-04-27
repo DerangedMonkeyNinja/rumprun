@@ -34,13 +34,20 @@
 void
 bmk_mainthread(void *cmdline)
 {
-        char *argv[] = {"bmk_main", 0};
-	void *cookie;
+    char *argv[] = {"bmk_main", 0};
+    void *cookie;
 
-	rumprun_boot(cmdline);
+    rumprun_boot(cmdline);
 
-	cookie = rumprun(main, 1, argv);
-	rumprun_wait(cookie);
+    /*
+     * XXX: running main in a separate forked thread causes problems with
+     * polling in other pthreads, so don't do it. Just run main
+     * directly for now.
+     */
+    (void)cookie;
+    main(1, argv);
+    //cookie = rumprun(main, 1, argv);
+    //rumprun_wait(cookie);
 
-	rumprun_reboot();
+    rumprun_reboot();
 }
