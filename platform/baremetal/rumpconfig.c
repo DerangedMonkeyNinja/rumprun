@@ -253,6 +253,34 @@ handle_blk(jsmntok_t *t, int left, const char *data)
 	return 2*objsize + 1;
 }
 
+/*
+ * Grub insists on escaping quotes with a backslahs and the JSON
+ * parsing routines don't handle escaped quotes, so strip those
+ * suckers out.
+ */
+static void
+strcpy_without_escaped_quotes(char *dst, const char *src, size_t len)
+{
+    size_t src_i = 0,
+        dst_i = 0;
+
+    for ( ; src_i < len; src_i++)
+    {
+        char c = src[src_i];
+        if (c == '\\' && src_i < len) {
+            /* escape sequence coming up */
+            char next_c = src[src_i + 1];
+            if (next_c == '\"') {
+                /* escaped quote found; don't copy this character */
+                continue;
+            }
+        }
+        dst[dst_i] = src[src_i];
+        dst_i++;
+    }
+    dst[dst_i] = '\0';  /* always null terminate */
+}
+
 struct {
 	const char *name;
 	int (*handler)(jsmntok_t *, int, const char *);
@@ -264,13 +292,17 @@ struct {
 };
 
 void
-_rumprun_config(const char *cmdline)
+_rumprun_config(const char *orig_cmdline)
 {
 	jsmn_parser p;
 	jsmntok_t *tokens = NULL;
 	jsmntok_t *t;
-	size_t cmdline_len = strlen(cmdline);
+	size_t cmdline_len = strlen(orig_cmdline);
 	int i, ntok;
+
+  char buffer[2048];
+  char *cmdline = &buffer[0];
+  strcpy_without_escaped_quotes(cmdline, orig_cmdline, cmdline_len);
 
 	while (*cmdline != '{') {
 		if (*cmdline == '\0') {
