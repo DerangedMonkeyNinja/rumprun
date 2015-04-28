@@ -4,6 +4,10 @@
 
 #include <bmk-core/sched.h>
 
+static uint64_t bmk_tsc_frequency;
+static uint64_t bmk_tsc_scale_factor;
+static uint64_t NS_PER_SECOND = 1000000000;
+
 /* enter the kernel with interrupts disabled */
 int bmk_spldepth = 1;
 
@@ -37,11 +41,17 @@ void bmk_cpu_isr_clock(void);
 void bmk_cpu_isr_10(void);
 void bmk_cpu_isr_11(void);
 
+/* clock routines */
+void bmk_clock_startrtclock(void);  /* in clock.c */
+void bmk_clock_delay(unsigned int);
+void bmk_cpu_calibrate_tsc_clock(void);
+bmk_time_t bmk_cpu_clock_now(void);
+
 static void
 fillgate(struct gate_descriptor *gd, void *fun)
 {
 
-	gd->gd_hioffset = (unsigned long)fun >> 16; 
+	gd->gd_hioffset = (unsigned long)fun >> 16;
 	gd->gd_looffset = (unsigned long)fun;
 
 	/* i was born lucky */
@@ -137,13 +147,6 @@ initpic(void)
 	outb(PIC2_DATA, 0xff);	/* all masked for now */
 }
 
-#define TIMER_CNTR	0x40
-#define TIMER_MODE	0x43
-#define TIMER_RATEGEN	0x04
-#define TIMER_16BIT	0x30
-#define TIMER_HZ	1193182
-#define HZ		100
-
 /*
  * This routine fills out the interrupt descriptors so that
  * we can handle interrupts without involving a jump to hyperspace.
@@ -183,10 +186,11 @@ bmk_cpu_init(void)
 	 */
 	fillgate(&idt[32], bmk_cpu_isr_clock);
 
-	/* initialize the timer to 100Hz */
-	outb(TIMER_MODE, TIMER_RATEGEN | TIMER_16BIT);
-	outb(TIMER_CNTR, (TIMER_HZ/HZ) & 0xff);
-	outb(TIMER_CNTR, (TIMER_HZ/HZ) >> 8);
+	/* start the realtime clock */
+  bmk_clock_startrtclock();
+
+  /* Calibrate TSC clock so we can provide 1 ns clock resolution */
+  bmk_cpu_calibrate_tsc_clock();
 
 	/* aaand we're good to interrupt */
 	spl0();
@@ -231,18 +235,49 @@ bmk_cpu_intr_ack(void)
 	    ::: "al");
 }
 
+static uint64_t
+read_tsc(void)
+{
+    uint64_t val;
+    unsigned long eax, edx;
+
+    /* um um um */
+    __asm__ __volatile__("rdtsc" : "=a"(eax), "=d"(edx));
+    val = ((uint64_t)edx<<32)|(eax);
+
+    return val;
+}
+
+void
+bmk_cpu_calibrate_tsc_clock(void)
+{
+    uint64_t last_tsc = read_tsc();
+    bmk_clock_delay(100000);
+    bmk_tsc_frequency = (read_tsc() - last_tsc) * 10;
+
+    bmk_tsc_scale_factor = (NS_PER_SECOND << 32) / bmk_tsc_frequency;
+
+    /* Nominal CPU frequency should be TSC rate */
+    bmk_cpu_frequency = bmk_tsc_frequency;
+}
+
 bmk_time_t
 bmk_cpu_clock_now(void)
 {
-	uint64_t val;
-	unsigned long eax, edx;
+    /* Convert TSC to ns resolution */
+    uint64_t ticks = read_tsc();
+    uint64_t ns = 0;
 
-	/* um um um */
-	__asm__ __volatile__("rdtsc" : "=a"(eax), "=d"(edx));
-	val = ((uint64_t)edx<<32)|(eax);
+    while (ticks > bmk_tsc_frequency) {
+        ticks -= bmk_tsc_frequency;
+        ns += NS_PER_SECOND;
+    }
 
-	/* just approximate that 1 cycle = 1ns.  "good enuf" for now */
-	return val;
+    if (ticks) {
+        ns += ((ticks * bmk_tsc_scale_factor) >> 32);
+    }
+
+    return (ns);
 }
 
 void

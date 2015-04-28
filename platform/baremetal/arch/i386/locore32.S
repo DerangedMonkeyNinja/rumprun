@@ -121,3 +121,14 @@ END(bmk_cpu_isr_##intnum)
 
 INTRSTUB(10)
 INTRSTUB(11)
+
+/*
+ * Enable/disable interrupts
+ */
+ENTRY(bmk_cpu_disable_intr)
+  cli
+  ret
+
+ENTRY(bmk_cpu_enable_intr)
+  sti
+  ret

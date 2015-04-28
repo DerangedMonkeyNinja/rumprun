@@ -38,6 +38,7 @@
 
 unsigned long bmk_membase;
 unsigned long bmk_memsize;
+unsigned long bmk_cpu_frequency;
 
 LIST_HEAD(, stackcache) cacheofstacks = LIST_HEAD_INITIALIZER(cacheofstacks);
 struct stackcache {
@@ -215,7 +216,7 @@ bmk_main(struct multiboot_info *mbi)
  * Should eventually keep an in-memory log.  printf-debugging is currently
  * a bit, hmm, limited.
  */
- 
+
 #define CONS_WIDTH 80
 #define CONS_HEIGHT 25
 #define CONS_MAGENTA 0x500
@@ -264,7 +265,7 @@ bmk_cons_putc(int c)
 			cons_putat(' ', x, cons_y);
 	}
 }
- 
+
 /*
  * init.  currently just clears the console.
  * rest is done in bmk_main()
