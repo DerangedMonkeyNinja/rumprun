@@ -7,6 +7,7 @@ CFLAGS+=        -fno-stack-protector
 SRCS=		rumpuser_base.c
 SRCS+=		rumpuser_clock.c
 SRCS+=		rumpuser_cons.c
+SRCS+=		rumpuser_cpu.c
 SRCS+=		rumpuser_mem.c
 SRCS+=		rumpuser_synch.c
 

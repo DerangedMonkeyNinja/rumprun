@@ -36,6 +36,7 @@
 #include <bmk-core/printf.h>
 #include <bmk-core/queue.h>
 
+extern unsigned long bmk_cpu_frequency;
 static unsigned long bmk_membase;
 static unsigned long bmk_memsize;
 
@@ -126,6 +127,18 @@ bmk_platform_freepg2(void *mem, int shift)
 	}
 
 	bmk_printf("WARNING: freepg2 called! (%p, %d)\n", mem, shift);
+}
+
+unsigned long
+bmk_platform_cpu_counter(void)
+{
+	return (bmk_cpu_counter());
+}
+
+unsigned long
+bmk_platform_cpu_frequency(void)
+{
+	return bmk_cpu_frequency;
 }
 
 unsigned long

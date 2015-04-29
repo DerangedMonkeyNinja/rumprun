@@ -4,6 +4,7 @@
 
 #include <bmk-core/sched.h>
 
+unsigned long   bmk_cpu_frequency = 0;  /* for export via kernel.c */
 static uint64_t bmk_tsc_frequency;
 static uint64_t bmk_tsc_scale_factor;
 static uint64_t NS_PER_SECOND = 1000000000;
@@ -238,8 +239,8 @@ bmk_cpu_intr_ack(void)
 	    ::: "al");
 }
 
-static uint64_t
-read_tsc(void)
+uint64_t
+bmk_cpu_counter(void)
 {
     uint64_t val;
     unsigned long eax, edx;
@@ -254,18 +255,21 @@ read_tsc(void)
 void
 bmk_cpu_calibrate_tsc_clock(void)
 {
-    uint64_t last_tsc = read_tsc();
+    uint64_t last_tsc = bmk_cpu_counter();
     bmk_clock_delay(100000);
-    bmk_tsc_frequency = (read_tsc() - last_tsc) * 10;
+    bmk_tsc_frequency = (bmk_cpu_counter() - last_tsc) * 10;
 
     bmk_tsc_scale_factor = (NS_PER_SECOND << 32) / bmk_tsc_frequency;
+
+    bmk_cpu_frequency = bmk_tsc_frequency;  /* true for modern cpus
+                                               anyway... */
 }
 
 bmk_time_t
 bmk_cpu_clock_now(void)
 {
     /* Convert TSC to ns resolution */
-    uint64_t ticks = read_tsc();
+    uint64_t ticks = bmk_cpu_counter();
     uint64_t ns = 0;
 
     while (ticks > bmk_tsc_frequency) {

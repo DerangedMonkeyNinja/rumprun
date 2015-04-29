@@ -27,6 +27,7 @@ int bmk_cpu_intr_init(int);
 void bmk_cpu_intr_ack(void);
 
 bmk_time_t bmk_cpu_clock_now(void);
+uint64_t bmk_cpu_counter(void);
 
 void bmk_isr_clock(void);
 void bmk_isr(int);
