@@ -22,3 +22,4 @@ app-tools/*
 src-netbsd/*
 platform/baremetal/include/bmk/machine
 tests/*
+platform/baremetal/buildtest
