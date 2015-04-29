@@ -29,69 +29,24 @@
 #include <bmk-core/memalloc.h>
 
 #include <rumprun-base/rumprun.h>
+#include <rumprun-base/parseargs.h>
 
 extern int main(int argc, char **argv);
-
-static void parseargs(void *cmdline, int *nargs, char **outarray) {
-	char *p = cmdline;
-	char *out = 0;
-	int quote = -1; /* -1 means outside arg, 0 or '"' or '\'' inside */
-
-	*nargs = 0;
-
-	for (;;) {
-		int ac = *p++;
-		int rc = ac;
-		if (ac == '\\')
-			rc = *p++;
-		if (!rc || ac==' ' || ac=='\n' || ac=='\t') {
-			/* any kind of delimiter */
-			if (!rc || quote==0) {
-				/* ending an argument */
-				if (out)
-					*out++ = 0;
-				quote = -1;
-			}
-			if (!rc)
-				/* definitely quit then */
-				break;
-			if (quote<0)
-				/* not in an argument now */
-				continue;
-		}
-		if (quote<0) {
-			/* starting an argument */
-			if (outarray)
-				outarray[*nargs] = out = p-1;
-			(*nargs)++;
-			quote = 0;
-		}
-		if (quote > 0 && ac == quote) {
-			quote = 0;
-			continue;
-		}
-		if (ac == '\'' || ac == '"') {
-			quote = ac;
-			continue;
-		}
-		if (out)
-			*out++ = rc;
-	}
-}
 
 void __default_app_main(start_info_t *);
 void
 __default_app_main(start_info_t *si)
 {
 	char argv0[] = "rumprun-xen";
+	char *rawcmdline = (char *)si->cmd_line;
 	int nargs;
 	char **argv;
 	void *cookie;
 
-	parseargs(si->cmd_line, &nargs, 0);
+	rumprun_parseargs(rawcmdline, &nargs, 0);
 	argv = bmk_xmalloc(sizeof(*argv) * (nargs+3));
 	argv[0] = argv0;
-	parseargs(si->cmd_line, &nargs, argv+1);
+	rumprun_parseargs(rawcmdline, &nargs, argv+1);
 	argv[nargs+1] = 0;
 	argv[nargs+2] = 0;
 

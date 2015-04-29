@@ -28,6 +28,7 @@
 #include <bmk/sched.h>
 
 #include <bmk-core/core.h>
+#include <bmk-core/printf.h>
 #include <bmk-core/sched.h>
 #include <bmk-core/string.h>
 #include <bmk-core/memalloc.h>
@@ -44,66 +45,6 @@ rumprun_platform_rumpuser_init(void)
 {
 
 	return 0;
-}
-
-/* reserve 1MB for bmk */
-#define BMK_MEMRESERVE (1024*1024)
-
-static int
-ultostr(unsigned long n, char *buf, size_t buflen)
-{
-    char tmp[21];
-    char *res = buf;
-    unsigned i, j;
-    int rv = 0;
-
-    for (i = 0; n > 0; i++) {
-			bmk_assert(i < sizeof(tmp)-1);
-			tmp[i] = (n % 10) + '0';
-			n = n / 10;
-		}
-		if (i >= buflen) {
-			rv = 1;
-		} else {
-			res[i] = '\0';
-			for (j = i; i > 0; i--) {
-				res[j-i] = tmp[i-1];
-			}
-		}
-
-    return (rv);
-}
-
-int
-rumpuser_getparam(const char *name, void *buf, size_t buflen)
-{
-	int rv = 0;
-
-	if (buflen <= 1)
-		return 1;
-
-	if (bmk_strcmp(name, RUMPUSER_PARAM_NCPU) == 0
-	    || bmk_strcmp(name, "RUMP_VERBOSE") == 0) {
-		bmk_strncpy(buf, "1", buflen-1);
-
-  } else if (bmk_strcmp(name, RUMPUSER_PARAM_CPU_FREQUENCY) == 0) {
-    ultostr(bmk_cpu_frequency, buf, buflen);
-
-	} else if (bmk_strcmp(name, RUMPUSER_PARAM_HOSTNAME) == 0) {
-		bmk_strncpy(buf, "rump-baremetal", buflen-1);
-
-	/* for memlimit, we have to implement int -> string ... */
-	} else if (bmk_strcmp(name, "RUMP_MEMLIMIT") == 0) {
-    bmk_assert(bmk_memsize > BMK_MEMRESERVE);
-		unsigned long memsize = bmk_memsize - BMK_MEMRESERVE;
-
-    rv = ultostr(memsize, buf, buflen);
-
-	} else {
-		rv = 1;
-	}
-
-	return rv;
 }
 
 /* ok, this isn't really random, but let's make-believe */

@@ -23,9 +23,13 @@
  * SUCH DAMAGE.
  */
 
+#include <bmk-core/core.h>
+#include <bmk-core/errno.h>
 #include <bmk-core/null.h>
 #include <bmk-core/platform.h>
+#include <bmk-core/printf.h>
 #include <bmk-core/sched.h>
+#include <bmk-core/string.h>
 
 #include <bmk-rumpuser/core_types.h>
 #include <bmk-rumpuser/rumpuser.h>
@@ -48,11 +52,69 @@ rumpuser_init(int version, const struct rumpuser_hyperup *hyp)
 	return rumprun_platform_rumpuser_init();
 }
 
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+
+/* attempt to give at least this much to the rump kernel */
+#define MEMSIZE_WARNLIMIT (8*1024*1024)
+/* give at most this much */
+#define MEMSIZE_HILIMIT (64*1024*1024)
+
+int
+rumpuser_getparam(const char *name, void *buf, size_t buflen)
+{
+	int rv = 0;
+
+	if (buflen <= 1)
+		return BMK_EINVAL;
+
+	if (bmk_strcmp(name, RUMPUSER_PARAM_NCPU) == 0
+	    || bmk_strcmp(name, "RUMP_VERBOSE") == 0) {
+		bmk_strncpy(buf, "1", buflen-1);
+
+	} else if (bmk_strcmp(name, RUMPUSER_PARAM_HOSTNAME) == 0) {
+		bmk_strncpy(buf, "rumprun", buflen-1);
+
+	/* for memlimit, we have to implement int -> string ... */
+	} else if (bmk_strcmp(name, "RUMP_MEMLIMIT") == 0) {
+		unsigned long memsize;
+		char tmp[64];
+		char *res = buf;
+		unsigned i, j;
+
+		/* use 50% memory for rump kernel, with an upper limit */
+		memsize = MIN(MEMSIZE_HILIMIT, bmk_platform_memsize()/2);
+		if (memsize < MEMSIZE_WARNLIMIT) {
+			bmk_printf("rump kernel warning: low on physical "
+			    "memory quota (%lu bytes)\n", memsize);
+			bmk_printf("rump kernel warning: "
+			    "suggest increasing guest allocation\n");
+		}
+
+		for (i = 0; memsize > 0; i++) {
+			bmk_assert(i < sizeof(tmp)-1);
+			tmp[i] = (memsize % 10) + '0';
+			memsize = memsize / 10;
+		}
+		if (i >= buflen) {
+			rv = BMK_EINVAL;
+		} else {
+			res[i] = '\0';
+			for (j = i; i > 0; i--) {
+				res[j-i] = tmp[i-1];
+			}
+		}
+	} else {
+		rv = BMK_ENOENT;
+	}
+
+	return rv;
+}
+
 void
 rumpuser_exit(int value)
 {
 
-	bmk_platform_halt(value == 0 ? NULL : "rumpuser panic");
+	bmk_platform_halt(value == RUMPUSER_PANIC ? "rumpuser panic" : NULL);
 }
 
 void

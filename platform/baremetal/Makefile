@@ -34,7 +34,7 @@ ifeq (${CONFIG_SYSPROXY},yes)
 LIBS_SYSPROXY=	-lrumpkern_sysproxy
 endif
 
-all: app-tools include/bmk/machine rumprun.o tests
+all: app-tools include/bmk/machine rumprun.o commonlibs buildtest
 
 OBJS_BMK-y+=		intr.o clock.o kernel.o undefs.o
 OBJS_BMK-y+=		rumpuser.o rumpconfig.o
@@ -58,7 +58,7 @@ endif
 LIBS_NETINET=	-lrumpnet_config -lrumpnet_netinet -lrumpnet_net -lrumpnet
 LIBS_NETBPF=	-lrumpdev_bpf
 LIBS_NETUNIX=	-lrumpnet_local
-LIBS_FS=	-lrumpfs_ffs -lrumpfs_cd9660
+LIBS_FS=	-lrumpfs_ffs -lrumpfs_cd9660 -lrumpfs_tmpfs
 
 RUMPKERN_LIB=	${LIBS_VIO_NET}					\
 		${LIBS_VIO_LD}					\
@@ -99,30 +99,38 @@ include $(APP_TOOLS_DIR)/Makefile.app-tools
 include/bmk/machine:
 	ln -s ../arch/${MACHINE} include/bmk/machine
 
+.PHONY: ${BASEDIR}/baremetal/librumprun_base.a
 ${BASEDIR}/baremetal/librumprun_base.a:
 	( cd ${BASEDIR} \
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal obj \
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal dependall )
 
+.PHONY: ${COREDIR}/baremetal/libbmk_core.a
 ${COREDIR}/baremetal/libbmk_core.a:
 	( cd ${COREDIR} \
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal obj \
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal dependall )
 
+.PHONY: ${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a
 ${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a:
 	( cd ${RUMPUSERDIR} \
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal obj \
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal dependall )
 
-rumprun.o: ${OBJS} ${BASEDIR}/baremetal/librumprun_base.a ${COREDIR}/baremetal/libbmk_core.a ${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a
+rumprun.o: ${OBJS}
 	${CC} -nostdlib ${CFLAGS} -Wl,-r ${OBJS_BMK} -o $@
 
-tests: rumprun.o app-tools
-	$(APP_TOOLS_MAKE) -C ../../tests
+commonlibs: ${BASEDIR}/baremetal/librumprun_base.a ${COREDIR}/baremetal/libbmk_core.a ${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a
+
+buildtest: ../../tests/hello/hello.c rumprun.o commonlibs app-tools
+	$(APP_TOOLS_CC) -DRUMPRUN_TESTER_JUSTMAIN -o $@ $<
+
+tests: rumprun.o commonlibs app-tools
+	RUMPRUN_PLATFORM=bmk ../../tests/buildtests.sh
+	../../tests/runtests.sh qemu
 
 clean: app-tools_clean
-	rm -f ${OBJS} include/bmk/machine
-	$(MAKE) -C ../../tests clean
+	rm -f ${OBJS} include/bmk/machine buildtest
 	( cd ${BASEDIR} && ${RUMPMAKE} MAKEOBJDIR=baremetal cleandir )
 	( cd ${COREDIR} && ${RUMPMAKE} MAKEOBJDIR=baremetal cleandir )
 	( cd ${RUMPUSERDIR} && ${RUMPMAKE} MAKEOBJDIR=baremetal cleandir )
@@ -134,3 +142,4 @@ cleanrump: clean
 
 distcleanrump: cleanrump
 	rm -f config.mk
+	$(MAKE) -C ../../tests clean

@@ -35,6 +35,7 @@
 #include <ufs/ufs/ufsmount.h>
 #include <isofs/cd9660/cd9660_mount.h>
 
+#include <assert.h>
 #include <err.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -45,6 +46,7 @@
 #include <rump/netconfig.h>
 
 #include <rumprun-base/config.h>
+#include <rumprun-base/parseargs.h>
 
 #include <bmk-core/jsmn.h>
 
@@ -77,12 +79,44 @@
 	}								\
   } while (/*CONSTCOND*/0)
 
+int rumprun_cmdline_argc;
+char **rumprun_cmdline_argv;
+
+static void
+makeargv(char *argvstr)
+{
+	char **argv;
+	int nargs;
+
+	assert(rumprun_cmdline_argc == 0 && rumprun_cmdline_argv == NULL);
+
+	rumprun_parseargs(argvstr, &nargs, 0);
+	argv = malloc(sizeof(*argv) * (nargs+2));
+	if (argv == NULL)
+		errx(1, "could not allocate argv");
+
+	rumprun_parseargs(argvstr, &nargs, argv);
+	argv[nargs] = argv[nargs+1] = '\0';
+	rumprun_cmdline_argv = argv;
+	rumprun_cmdline_argc = nargs;
+}
+
 static int
 handle_cmdline(jsmntok_t *t, int left, const char *data)
 {
+	char *argvstr;
+	size_t argvstrlen;
 
 	T_CHECKTYPE(t, data, JSMN_STRING, __func__);
-	printf("command line is: %.*s\n", T_PRINTFSTAR(t, data));
+
+	/* allocate memory for argv element storage */
+	argvstrlen = T_SIZE(t)+1;
+	argvstr = malloc(argvstrlen);
+	if (argvstr == NULL)
+		errx(1, "could not allocate argv storage");
+
+	T_STRCPY(argvstr, argvstrlen, t, data);
+	makeargv(argvstr);
 
 	return 1;
 }
@@ -113,7 +147,8 @@ handle_env(jsmntok_t *t, int left, const char *data)
 static int
 handle_net(jsmntok_t *t, int left, const char *data)
 {
-	char ifname[16], type[16], method[16];
+	char ifname[32], type[32], method[32];
+	char addr[32], mask[32], gw[32];
 	jsmntok_t *key, *value;
 	int rv, i, objsize;
 	static int configured;
@@ -132,6 +167,7 @@ handle_net(jsmntok_t *t, int left, const char *data)
 	}
 
 	ifname[0] = type[0] = method[0] = '\0';
+	addr[0] = mask[0] = gw[0] = '\0';
 
 	for (i = 0; i < objsize; i++, t+=2) {
 		key = t;
@@ -143,12 +179,23 @@ handle_net(jsmntok_t *t, int left, const char *data)
 		T_CHECKTYPE(value, data, JSMN_STRING, __func__);
 		T_CHECKSIZE(value, data, 0, __func__);
 
+		/*
+		 * XXX: this mimics the structure from Xen.  We probably
+		 * want a richer structure, but let's be happy to not
+		 * diverge for now.
+		 */
 		if (T_STREQ(key, data, "if")) {
 			T_STRCPY(ifname, sizeof(ifname), value, data);
 		} else if (T_STREQ(key, data, "type")) {
 			T_STRCPY(type, sizeof(type), value, data);
 		} else if (T_STREQ(key, data, "method")) {
 			T_STRCPY(method, sizeof(method), value, data);
+		} else if (T_STREQ(key, data, "addr")) {
+			T_STRCPY(addr, sizeof(addr), value, data);
+		} else if (T_STREQ(key, data, "mask")) {
+			T_STRCPY(mask, sizeof(mask), value, data);
+		} else if (T_STREQ(key, data, "gw")) {
+			T_STRCPY(gw, sizeof(gw), value, data);
 		} else {
 			errx(1, "unexpected key \"%.*s\" in \"%s\", ignoring",
 			    T_PRINTFSTAR(key, data), __func__);
@@ -159,14 +206,33 @@ handle_net(jsmntok_t *t, int left, const char *data)
 		errx(1, "net cfg missing vital data, not configuring");
 	}
 
-	if (strcmp(type, "inet") != 0 || strcmp(method, "dhcp") != 0) {
-		errx(1, "only inet/dhcp is supported currently, got: "
-		    "\"%s/%s\"", type, method);
+	if (strcmp(type, "inet") != 0) {
+		errx(1, "only ipv4 is supported currently, got: \"%s\"", type);
 	}
 
-	if ((rv = rump_pub_netconfig_dhcp_ipv4_oneshot(ifname)) != 0)
-		errx(1, "configuring dhcp for %s failed: %d",
-		    ifname, rv);
+	if (strcmp(method, "dhcp") == 0) {
+		if ((rv = rump_pub_netconfig_dhcp_ipv4_oneshot(ifname)) != 0)
+			errx(1, "configuring dhcp for %s failed: %d",
+			    ifname, rv);
+	} else {
+		if (strcmp(method, "static") != 0) {
+			errx(1, "method \"static\" or \"dhcp\" expected, "
+			    "got \"%s\"", method);
+		}
+
+		if (!addr[0] || !mask[0]) {
+			errx(1, "static net cfg missing addr or mask");
+		}
+
+		if ((rv = rump_pub_netconfig_ipv4_ifaddr(ifname,
+		    addr, mask)) != 0) {
+			errx(1, "ifconfig \"%s\" for \"%s/%s\" failed",
+			    ifname, addr, mask);
+		}
+		if (gw[0] && (rv = rump_pub_netconfig_ipv4_gw(gw)) != 0) {
+			errx(1, "gw \"%s\" addition failed", gw);
+		}
+	}
 
 	return 2*objsize + 1;
 }
@@ -307,6 +373,7 @@ _rumprun_config(const char *orig_cmdline)
 	while (*cmdline != '{') {
 		if (*cmdline == '\0') {
 			warnx("could not find start of json.  no config?");
+			makeargv("rumprun");
 			return;
 		}
 		cmdline++;

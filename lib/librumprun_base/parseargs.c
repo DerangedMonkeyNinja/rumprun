@@ -1,5 +1,5 @@
-/*
- * Copyright (c) 2014 Martin Lucina.  All Rights Reserved.
+/*-
+ * Copyright (c) 2014 Citrix.  All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,13 +23,52 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _BMKCOMMON_RUMPRUN_CONFIG_H_
-#define _BMKCOMMON_RUMPRUN_CONFIG_H_
+#include <rumprun-base/parseargs.h>
 
-extern int rumprun_cmdline_argc;
-extern char **rumprun_cmdline_argv;
+void
+rumprun_parseargs(char *p, int *nargs, char **outarray)
+{
+	char *out = 0;
+	int quote = -1; /* -1 means outside arg, 0 or '"' or '\'' inside */
 
-void _rumprun_config(const char *);
-void _rumprun_deconfig(void);
+	*nargs = 0;
 
-#endif /* _BMKCOMMON_RUMPRUN_CONFIG_H_ */
+	for (;;) {
+		int ac = *p++;
+		int rc = ac;
+		if (ac == '\\')
+			rc = *p++;
+		if (!rc || ac==' ' || ac=='\n' || ac=='\t') {
+			/* any kind of delimiter */
+			if (!rc || quote==0) {
+				/* ending an argument */
+				if (out)
+					*out++ = 0;
+				quote = -1;
+			}
+			if (!rc)
+				/* definitely quit then */
+				break;
+			if (quote<0)
+				/* not in an argument now */
+				continue;
+		}
+		if (quote<0) {
+			/* starting an argument */
+			if (outarray)
+				outarray[*nargs] = out = p-1;
+			(*nargs)++;
+			quote = 0;
+		}
+		if (quote > 0 && ac == quote) {
+			quote = 0;
+			continue;
+		}
+		if (ac == '\'' || ac == '"') {
+			quote = ac;
+			continue;
+		}
+		if (out)
+			*out++ = rc;
+	}
+}

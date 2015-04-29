@@ -126,6 +126,8 @@ adjustgs(uintptr_t p, size_t s)
 #define ICW1_INIT	0x10
 #define ICW4_8086	0x01	/* use 8086 mode */
 
+static int pic2mask = 0xff;
+
 static void
 initpic(void)
 {
@@ -144,7 +146,7 @@ initpic(void)
 	outb(PIC2_DATA, 32+8);	/* interrupts start from 40 in IDT */
 	outb(PIC2_DATA, 2);	/* interrupt at irq 2 */
 	outb(PIC2_DATA, ICW4_8086);
-	outb(PIC2_DATA, 0xff);	/* all masked for now */
+	outb(PIC2_DATA, pic2mask);
 }
 
 /*
@@ -216,7 +218,8 @@ bmk_cpu_intr_init(int intr)
 	}
 
 	/* unmask interrupt in PIC */
-	outb(PIC2_DATA, 0xff & ~(1<<(intr-8)));
+	pic2mask &= ~(1<<(intr-8));
+	outb(PIC2_DATA, pic2mask);
 
 	return 0;
 }
@@ -256,9 +259,6 @@ bmk_cpu_calibrate_tsc_clock(void)
     bmk_tsc_frequency = (read_tsc() - last_tsc) * 10;
 
     bmk_tsc_scale_factor = (NS_PER_SECOND << 32) / bmk_tsc_frequency;
-
-    /* Nominal CPU frequency should be TSC rate */
-    bmk_cpu_frequency = bmk_tsc_frequency;
 }
 
 bmk_time_t

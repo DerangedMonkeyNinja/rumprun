@@ -1,5 +1,5 @@
-/*
- * Copyright (c) 2014 Martin Lucina.  All Rights Reserved.
+/*-
+ * Copyright (c) 2014 Citrix.  All Rights Reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -23,13 +23,9 @@
  * SUCH DAMAGE.
  */
 
-#ifndef _BMKCOMMON_RUMPRUN_CONFIG_H_
-#define _BMKCOMMON_RUMPRUN_CONFIG_H_
+#ifndef _RUMPRUN_BASE_PARSEARGS_H_
+#define _RUMPRUN_BASE_PARSEARGS_H_
 
-extern int rumprun_cmdline_argc;
-extern char **rumprun_cmdline_argv;
+void rumprun_parseargs(char *, int *, char **);
 
-void _rumprun_config(const char *);
-void _rumprun_deconfig(void);
-
-#endif /* _BMKCOMMON_RUMPRUN_CONFIG_H_ */
+#endif /* _RUMPRUN_BASE_PARSEARGS_H_ */
