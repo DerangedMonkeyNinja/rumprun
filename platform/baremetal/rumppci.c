@@ -102,6 +102,14 @@ rumpcomp_pci_map(unsigned long addr, unsigned long len)
 	return (void *)addr;
 }
 
+void
+rumpcomp_pci_unmap(unsigned long addr, unsigned long len)
+{
+	/* ho hum */
+	(void)addr;
+	(void)len;
+}
+
 int
 rumpcomp_pci_dmalloc(size_t size, size_t align,
 	unsigned long *pap, unsigned long *vap)

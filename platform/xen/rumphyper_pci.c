@@ -42,6 +42,12 @@ rumpcomp_pci_map(unsigned long addr, unsigned long len)
 	return minios_ioremap_nocache(addr, len);
 }
 
+void
+rumpcomp_pci_unmap(unsigned long addr, unsigned long len)
+{
+	minios_iounmap((void *)addr, len);
+}
+
 int
 rumpcomp_pci_confread(unsigned bus, unsigned dev, unsigned fun,
 	int reg, unsigned int *rv)
