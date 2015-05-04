@@ -168,16 +168,32 @@ int __getrusage50(int, struct rusage *);
 int
 __getrusage50(int who, struct rusage *usage)
 {
+	bmk_time_t tt = 0,
+	           st = 0,
+	           ut = 0;
 
-	/* We fake something.  We should query the scheduler some day */
 	memset(usage, 0, sizeof(*usage));
-	if (who == RUSAGE_SELF) {
-		usage->ru_utime.tv_sec = 1;
-		usage->ru_utime.tv_usec = 1;
-		usage->ru_stime.tv_sec = 1;
-		usage->ru_stime.tv_usec = 1;
+	switch (who) {
+	case RUSAGE_SELF:
+	case RUSAGE_CHILDREN:
+		ut = bmk_sched_get_rtime(NULL);
+		break;
+	default:
+		return EINVAL;
 	}
 
+	/*
+	 * Since we have no information about user vs. system time,
+	 * just split the time evenly.	This is what the NetBSD kernel
+	 * does.	Also, go ahead and convert from nsec to usec.
+	 */
+	st = ut = tt / 2000;
+	usage->ru_utime.tv_sec = st / 100000;
+	usage->ru_utime.tv_usec = st % 100000;
+	usage->ru_stime.tv_sec = ut / 100000;
+	usage->ru_stime.tv_usec = ut % 100000;
+
+	/* This is all bogus for now */
 	usage->ru_maxrss = 1024;
 	usage->ru_ixrss = 1024;
 	usage->ru_idrss = 1024;
@@ -186,6 +202,5 @@ __getrusage50(int who, struct rusage *usage)
 	usage->ru_nvcsw = 1;
 	usage->ru_nivcsw = 1;
 
-	/* XXX: wrong in many ways */
-	return ENOTSUP;
+	return 0;
 }

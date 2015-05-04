@@ -24,7 +24,7 @@
  * SUCH DAMAGE.
  */
 
-/* 
+/*
  ****************************************************************************
  * (C) 2005 - Grzegorz Milos - Intel Research Cambridge
  ****************************************************************************
@@ -32,13 +32,13 @@
  *        File: sched.c
  *      Author: Grzegorz Milos
  *     Changes: Robert Kaiser
- *              
+ *
  *        Date: Aug 2005
- * 
+ *
  * Environment: Xen Minimal OS
  * Description: simple scheduler for Mini-Os
  *
- * The scheduler is non-preemptive (cooperative), and schedules according 
+ * The scheduler is non-preemptive (cooperative), and schedules according
  * to Round Robin algorithm.
  *
  ****************************************************************************
@@ -48,16 +48,16 @@
  * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
  * sell copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in
  * all copies or substantial portions of the Software.
- * 
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
  */
 
@@ -68,6 +68,7 @@
 #include <bmk-core/queue.h>
 #include <bmk-core/string.h>
 #include <bmk-core/sched.h>
+#include <bmk-core/types.h>
 
 #define TLS_COUNT 2
 #define NAME_MAXLEN 16
@@ -91,6 +92,9 @@ struct bmk_thread {
 	void *bt_stackbase;
 
 	void *bt_cookie;
+
+	bmk_time_t bt_rtime;
+	bmk_time_t bt_stime;
 
 	/* MD thread control block */
 	struct bmk_tcb bt_tcb;
@@ -143,8 +147,8 @@ static void
 print_threadinfo(struct bmk_thread *thread)
 {
 
-	bmk_printf("thread \"%s\" at %p, flags 0x%x\n",
-	    thread->bt_name, thread, thread->bt_flags);
+	bmk_printf("thread \"%s\" at %p, flags 0x%x, rtime = %ld\n",
+	    thread->bt_name, thread, thread->bt_flags, (long)thread->bt_rtime);
 }
 
 static void
@@ -154,6 +158,17 @@ sched_switch(struct bmk_thread *prev, struct bmk_thread *next)
 	if (scheduler_hook)
 		scheduler_hook(prev->bt_cookie, next->bt_cookie);
 	bmk_platform_cpu_sched_switch(&prev->bt_tcb, &next->bt_tcb);
+}
+
+static void
+sched_updatertime(struct bmk_thread *thread)
+{
+	/* rtime += now - stime */
+	bmk_time_t now = bmk_platform_clock_monotonic();
+	if (now < thread->bt_stime)
+		bmk_printf("now = %ld, stime = %ld\n",
+							 (long)now, (long)thread->bt_stime);
+	thread->bt_rtime += (now - thread->bt_stime);
 }
 
 struct bmk_thread *
@@ -196,6 +211,8 @@ bmk_sched(void)
 		bmk_platform_halt("Must not call sched() with IRQs disabled\n");
 	}
 
+	sched_updatertime(prev);
+
 	/* could do time management a bit better here */
 	for (;;) {
 		bmk_time_t tm, wakeup;
@@ -233,6 +250,7 @@ bmk_sched(void)
 	bmk_platform_splx(flags);
 
 	if (prev != next) {
+		next->bt_stime = bmk_platform_clock_monotonic();
 		sched_switch(prev, next);
 	}
 
@@ -245,6 +263,8 @@ bmk_sched(void)
 			bmk_memfree(thread);
 		}
 	}
+
+	prev->bt_stime = bmk_platform_clock_monotonic();
 }
 
 /*
@@ -524,4 +544,21 @@ bmk_sched_yield(void)
 	TAILQ_REMOVE(&threads, current, bt_entries);
 	TAILQ_INSERT_TAIL(&threads, current, bt_entries);
 	bmk_sched();
+}
+
+bmk_time_t
+bmk_sched_get_rtime(struct bmk_thread *thread)
+{
+	bmk_time_t total_rtime = 0;
+
+	if (thread)
+		total_rtime = thread->bt_rtime;
+	else {
+		struct bmk_thread *it = NULL, *tmp = NULL;
+		TAILQ_FOREACH_SAFE(it, &threads, bt_entries, tmp) {
+			total_rtime += it->bt_rtime;
+		}
+	}
+
+	return total_rtime;
 }
