@@ -245,8 +245,9 @@ bmk_cpu_counter(void)
     uint64_t val;
     unsigned long eax, edx;
 
-    /* um um um */
-    __asm__ __volatile__("rdtsc" : "=a"(eax), "=d"(edx));
+    __asm__ __volatile__(
+        "lfence\n"
+        "rdtsc" : "=a"(eax), "=d"(edx));
     val = ((uint64_t)edx<<32)|(eax);
 
     return val;

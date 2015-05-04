@@ -32,4 +32,6 @@ typedef long bmk_time_t;
 typedef long long bmk_time_t;
 #endif
 
+#define BMK_TIME_T_MAX 0x7fffffffffffffff
+
 #endif /* _BMK_CORE_TYPES_H_ */

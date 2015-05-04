@@ -31,7 +31,7 @@ bmk_time_t
 bmk_platform_clock_monotonic(void)
 {
 
-	return bmk_cpu_clock_now();
+	return (bmk_cpu_clock_now() & BMK_TIME_T_MAX);
 }
 
 bmk_time_t

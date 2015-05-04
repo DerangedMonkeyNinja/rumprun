@@ -132,7 +132,7 @@ void bmk_cpu_disable_intr(void);
 
 #define UINT_MAX 0xffffffffU
 
-static const u_long hz   = 100;  /* 10ms timer */
+static const u_long hz   = 1000;  /* 1ms timer */
 
 static u_long rtclock_tval;  /* i8254 reload value for countdown */
 static int rtclock_init = 0;
