@@ -28,8 +28,12 @@
 
 #ifdef _LP64
 typedef long bmk_time_t;
+typedef unsigned long uint64_t;
+#define PRI_BMK_TIME "ld"
 #else
 typedef long long bmk_time_t;
+typedef unsigned long long uint64_t;
+#define PRI_BMK_TIME "lld"
 #endif
 
 #define BMK_TIME_T_MAX 0x7fffffffffffffff

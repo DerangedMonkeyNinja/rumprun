@@ -1,3 +1,4 @@
+
 /*-
  * Copyright (c) 2015 Antti Kantee.  All Rights Reserved.
  *
@@ -26,12 +27,13 @@
 #include <bmk/kernel.h>
 
 #include <bmk-core/sched.h>
+#include <bmk-core/timetc.h>
 
 bmk_time_t
 bmk_platform_clock_monotonic(void)
 {
 
-	return (bmk_cpu_clock_now() & BMK_TIME_T_MAX);
+	return (bmk_tc_gettime());
 }
 
 bmk_time_t

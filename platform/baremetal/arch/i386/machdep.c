@@ -4,10 +4,10 @@
 
 #include <bmk-core/sched.h>
 
+#include "kvm.h"
+#include "tsc.h"
+
 unsigned long   bmk_cpu_frequency = 0;  /* for export via kernel.c */
-static uint64_t bmk_tsc_frequency;
-static uint64_t bmk_tsc_scale_factor;
-static uint64_t NS_PER_SECOND = 1000000000;
 
 /* enter the kernel with interrupts disabled */
 int bmk_spldepth = 1;
@@ -45,8 +45,9 @@ void bmk_cpu_isr_11(void);
 /* clock routines */
 void bmk_clock_startrtclock(void);  /* in clock.c */
 void bmk_clock_delay(unsigned int);
-void bmk_cpu_calibrate_tsc_clock(void);
-bmk_time_t bmk_cpu_clock_now(void);
+void bmk_init_tsc_tc(void);
+
+void bmk_cpu_identify(void);
 
 static void
 fillgate(struct gate_descriptor *gd, void *fun)
@@ -189,11 +190,22 @@ bmk_cpu_init(void)
 	 */
 	fillgate(&idt[32], bmk_cpu_isr_clock);
 
-	/* start the realtime clock */
-  bmk_clock_startrtclock();
+	/*
+	 * Figure out some information about our platform so we can pick
+	 * a reasonable clock to use...
+	 */
+	bmk_cpu_identify();
 
-  /* Calibrate TSC clock so we can provide 1 ns clock resolution */
-  bmk_cpu_calibrate_tsc_clock();
+	/* start the realtime clock */
+	bmk_clock_startrtclock();
+
+	if (bmk_is_kvm_guest()) {
+		bmk_kvm_init();
+		bmk_cpu_frequency = bmk_kvm_get_tsc_frequency();
+	} else {
+		bmk_tsc_init();
+		bmk_cpu_frequency = bmk_tsc_get_tsc_frequency();
+	}
 
 	/* aaand we're good to interrupt */
 	spl0();
@@ -251,38 +263,6 @@ bmk_cpu_counter(void)
     val = ((uint64_t)edx<<32)|(eax);
 
     return val;
-}
-
-void
-bmk_cpu_calibrate_tsc_clock(void)
-{
-    uint64_t last_tsc = bmk_cpu_counter();
-    bmk_clock_delay(100000);
-    bmk_tsc_frequency = (bmk_cpu_counter() - last_tsc) * 10;
-
-    bmk_tsc_scale_factor = (NS_PER_SECOND << 32) / bmk_tsc_frequency;
-
-    bmk_cpu_frequency = bmk_tsc_frequency;  /* true for modern cpus
-                                               anyway... */
-}
-
-bmk_time_t
-bmk_cpu_clock_now(void)
-{
-    /* Convert TSC to ns resolution */
-    uint64_t ticks = bmk_cpu_counter();
-    uint64_t ns = 0;
-
-    while (ticks > bmk_tsc_frequency) {
-        ticks -= bmk_tsc_frequency;
-        ns += NS_PER_SECOND;
-    }
-
-    if (ticks) {
-        ns += ((ticks * bmk_tsc_scale_factor) >> 32);
-    }
-
-    return (ns);
 }
 
 void

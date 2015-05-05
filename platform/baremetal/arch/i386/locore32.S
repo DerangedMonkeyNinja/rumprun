@@ -112,7 +112,7 @@ ENTRY(bmk_cpu_isr_##intnum)						\
 	call bmk_isr							;\
 	addl $4, %esp							;\
 	popl %edx							;\
-	popl %ecx							;\
+  popl %ecx							;\
 	popl %ebx							;\
 	popl %eax							;\
 	sti								;\
