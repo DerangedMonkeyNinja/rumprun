@@ -25,40 +25,35 @@
 
 #include <bmk/types.h>
 #include <bmk/kernel.h>
-#include <bmk/sched.h>
+#include <bmk/multiboot.h>
 
 #include <bmk-core/core.h>
-#include <bmk-core/printf.h>
 #include <bmk-core/sched.h>
-#include <bmk-core/string.h>
-#include <bmk-core/memalloc.h>
+#include <bmk-core/printf.h>
 
-#define LIBRUMPUSER
-#include <rump/rumpuser.h>
+#include "kvm.h"
+#include "tsc.h"
 
-#include "rumpuser_int.h"
+unsigned long   bmk_cpu_frequency = 0;  /* for export via kernel.c */
 
-#include <bmk-rumpuser/rumpuser.h>
-
-int
-rumprun_platform_rumpuser_init(void)
+void
+bmk_cpu_boot(struct multiboot_info *mbi)
 {
 
-	return 0;
-}
+	bmk_cpu_init();
+	bmk_multiboot(mbi);
 
-/* ok, this isn't really random, but let's make-believe */
-int
-rumpuser_getrandom(void *buf, size_t buflen, int flags, size_t *retp)
-{
-	static unsigned seed = 12345;
-	unsigned *v = buf;
-
-	*retp = buflen;
-	while (buflen >= 4) {
-		buflen -= 4;
-		*v++ = seed;
-		seed = (seed * 1103515245 + 12345) % (0x80000000L);
+	if (bmk_is_kvm_guest()) {
+		bmk_kvm_init();
+		bmk_cpu_frequency = bmk_kvm_get_tsc_frequency();
+	} else {
+		bmk_tsc_init();
+		bmk_cpu_frequency = bmk_tsc_get_tsc_frequency();
 	}
-	return 0;
+
+	spl0();
+
+	bmk_run(bmk_multiboot_cmdline);
+
+	bmk_sched_yield();
 }

@@ -26,7 +26,8 @@
 #
 
 # TODO: use a more scalable way of specifying tests
-TESTS='hello/hello basic/ctor_test basic/pthread_test basic/tls_test'
+TESTS='hello/hello basic/ctor_test basic/pthread_test basic/tls_test
+	crypto/md5'
 
 STARTMAGIC='=== FOE RUMPRUN 12345 TES-TER 54321 ==='
 ENDMAGIC='=== RUMPRUN 12345 TES-TER 54321 EOF ==='
@@ -65,7 +66,7 @@ runguest ()
 	# img2=$3
 
 	[ -n "${img1}" ] || die runtest without a disk image
-	cookie=$(${RUMPRUN} ${STACK} ${OPT_SUDO} -b ${img1} ${testprog})
+	cookie=$(${RUMPRUN} ${STACK} ${OPT_SUDO} -b ${img1} ${testprog} __test)
 	if [ $? -ne 0 -o -z "${cookie}" ]; then
 		TEST_RESULT=ERROR
 		TEST_ECODE=-2

@@ -1,13 +1,33 @@
+/*-
+ * Copyright (c) 2014 Antti Kantee.  All Rights Reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS
+ * OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
 #include <bmk/types.h>
 #include <bmk/kernel.h>
-#include <bmk/sched.h>
 
+#include <bmk-core/core.h>
 #include <bmk-core/sched.h>
-
-#include "kvm.h"
-#include "tsc.h"
-
-unsigned long   bmk_cpu_frequency = 0;  /* for export via kernel.c */
 
 /* enter the kernel with interrupts disabled */
 int bmk_spldepth = 1;
@@ -111,13 +131,14 @@ fillsegment(struct segment_descriptor *sd, int type, int gran)
 }
 
 static void
-adjustgs(uintptr_t p, size_t s)
+adjustgs(uintptr_t p)
 {
 	struct segment_descriptor *sd = &gdt[SEGMENT_GS];
 
 	sd->sd_lobase = p & 0xffffff;
 	sd->sd_hibase = (p >> 24) & 0xff;
-	sd->sd_lolimit = s;
+
+	__asm__ __volatile__("mov %0, %%gs" :: "r"(8*SEGMENT_GS));
 }
 
 #define PIC1_CMD	0x20
@@ -163,7 +184,7 @@ bmk_cpu_init(void)
 
 	fillsegment(&gdt[SEGMENT_CODE], SDT_MEMERA, SEG_PAGEGRAN);
 	fillsegment(&gdt[SEGMENT_DATA], SDT_MEMRWA, SEG_PAGEGRAN);
-	fillsegment(&gdt[SEGMENT_GS], SDT_MEMRWA, SEG_BYTEGRAN);
+	fillsegment(&gdt[SEGMENT_GS], SDT_MEMRWA, SEG_PAGEGRAN);
 
 	region.rd_limit = sizeof(gdt)-1;
 	region.rd_base = (unsigned int)(uintptr_t)(void *)gdt;
@@ -198,17 +219,6 @@ bmk_cpu_init(void)
 
 	/* start the realtime clock */
 	bmk_clock_startrtclock();
-
-	if (bmk_is_kvm_guest()) {
-		bmk_kvm_init();
-		bmk_cpu_frequency = bmk_kvm_get_tsc_frequency();
-	} else {
-		bmk_tsc_init();
-		bmk_cpu_frequency = bmk_tsc_get_tsc_frequency();
-	}
-
-	/* aaand we're good to interrupt */
-	spl0();
 }
 
 int
@@ -281,6 +291,6 @@ void
 bmk_platform_cpu_sched_switch(struct bmk_tcb *prev, struct bmk_tcb *next)
 {
 
-	adjustgs(next->btcb_tp, next->btcb_tpsize);
+	adjustgs(next->btcb_tp);
 	bmk__cpu_switch(prev, next);
 }

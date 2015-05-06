@@ -27,8 +27,6 @@
 #include <bmk/types.h>
 #include <bmk/multiboot.h>
 #include <bmk/kernel.h>
-#include <bmk/sched.h>
-#include <bmk/app.h>
 
 #include <bmk-core/core.h>
 #include <bmk-core/string.h>
@@ -36,10 +34,11 @@
 #include <bmk-core/platform.h>
 #include <bmk-core/printf.h>
 #include <bmk-core/queue.h>
+#include <bmk-core/sched.h>
 
 extern unsigned long bmk_cpu_frequency;
-static unsigned long bmk_membase;
-static unsigned long bmk_memsize;
+unsigned long bmk_membase;
+unsigned long bmk_memsize;
 
 LIST_HEAD(, stackcache) cacheofstacks = LIST_HEAD_INITIALIZER(cacheofstacks);
 struct stackcache {
@@ -170,133 +169,12 @@ bmk_platform_splx(unsigned long x)
 	return; /* XXX */
 }
 
-static int
-parsemem(uint32_t addr, uint32_t len)
-{
-	struct multiboot_mmap_entry *mbm;
-	unsigned long memsize;
-	unsigned long ossize, osbegin, osend;
-	extern char _end[], _begin[];
-	uint32_t off;
-
-	/*
-	 * Look for our memory.  We assume it's just in one chunk
-	 * starting at MEMSTART.
-	 */
-	for (off = 0; off < len; off += mbm->size + sizeof(mbm->size)) {
-		mbm = (void *)(addr + off);
-		if (mbm->addr == MEMSTART
-		    && mbm->type == MULTIBOOT_MEMORY_AVAILABLE) {
-			break;
-		}
-	}
-	bmk_assert(off < len);
-
-	memsize = mbm->len;
-	osbegin = (unsigned long)_begin;
-	osend = round_page((unsigned long)_end);
-	ossize = osend - osbegin;
-
-	bmk_membase = mbm->addr + ossize;
-	bmk_memsize = memsize - ossize;
-
-	bmk_assert((bmk_membase & (PAGE_SIZE-1)) == 0);
-
-	return 0;
-}
-
 void
-bmk_main(struct multiboot_info *mbi)
+bmk_run(char *cmdline)
 {
-	static char cmdline[2048];
 
-	bmk_printf_init(bmk_cons_putc, NULL);
-	bmk_core_init(BMK_THREAD_STACK_PAGE_ORDER, PAGE_SIZE);
-
-	if (bmk_strlen((char *)mbi->cmdline) > sizeof(cmdline)-1)
-		bmk_platform_halt("command line too long"); /* XXX */
-	bmk_memcpy(cmdline, (char *)mbi->cmdline, sizeof(cmdline));
-
-	bmk_printf("rump kernel bare metal bootstrap\n\n");
-	if ((mbi->flags & MULTIBOOT_MEMORY_INFO) == 0) {
-		bmk_printf("multiboot memory info not available\n");
-		return;
-	}
-	if (parsemem(mbi->mmap_addr, mbi->mmap_length))
-		return;
-	bmk_cpu_init();
-	bmk_isr_init();
-
-	/* enough bootstrap already, jump to main thread */
+	/* initialize scheduler and jump to main thread */
 	bmk_sched_init(bmk_mainthread, cmdline);
-}
-
-/*
- * console.  quick, cheap, dirty, etc.
- * Should eventually keep an in-memory log.  printf-debugging is currently
- * a bit, hmm, limited.
- */
-
-#define CONS_WIDTH 80
-#define CONS_HEIGHT 25
-#define CONS_MAGENTA 0x500
-static volatile uint16_t *cons_buf = (volatile uint16_t *)0xb8000;
-
-static void
-cons_putat(int c, int x, int y)
-{
-
-	cons_buf[x + y*CONS_WIDTH] = CONS_MAGENTA|c;
-}
-
-/* display a character in the next available slot */
-void
-bmk_cons_putc(int c)
-{
-	static int cons_x;
-	static int cons_y;
-	int x;
-	int doclear = 0;
-
-	if (c == '\n') {
-		cons_x = 0;
-		cons_y++;
-		doclear = 1;
-	} else if (c == '\r') {
-		cons_x = 0;
-	} else if (c == '\t') {
-		cons_x = (cons_x+8) & ~7;
-	} else {
-		cons_putat(c, cons_x++, cons_y);
-	}
-	if (cons_x == CONS_WIDTH) {
-		cons_x = 0;
-		cons_y++;
-		doclear = 1;
-	}
-	if (cons_y == CONS_HEIGHT) {
-		cons_y--;
-		/* scroll screen up one line */
-		for (x = 0; x < (CONS_HEIGHT-1)*CONS_WIDTH; x++)
-			cons_buf[x] = cons_buf[x+CONS_WIDTH];
-	}
-	if (doclear) {
-		for (x = 0; x < CONS_WIDTH; x++)
-			cons_putat(' ', x, cons_y);
-	}
-}
-
-/*
- * init.  currently just clears the console.
- * rest is done in bmk_main()
- */
-void
-bmk_init(void)
-{
-	int x;
-
-	for (x = 0; x < CONS_HEIGHT * CONS_WIDTH; x++)
-		cons_putat(' ', x % CONS_WIDTH, x / CONS_WIDTH);
 }
 
 void __attribute__((noreturn))

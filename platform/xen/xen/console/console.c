@@ -44,11 +44,9 @@
 #include <mini-os/xenbus.h>
 #include <xen/io/console.h>
 
-#include <stdio.h>
-
-#include <bmk-core/printf.h>
 #include <bmk-core/string.h>
-
+#define _BMK_PRINTF_VA
+#include <bmk-core/printf.h>
 
 /* Copies all print output to the Xen emergency console apart
    of standard dom0 handled console */
@@ -128,7 +126,7 @@ void print(int direct, const char *fmt, va_list args)
 {
     static char   buf[1024];
     
-    (void)vsnprintf(buf, sizeof(buf), fmt, args);
+    bmk_vsnprintf(buf, sizeof(buf), fmt, args);
  
     if(direct)
     {
@@ -145,7 +143,7 @@ void print(int direct, const char *fmt, va_list args)
 }
 
 /* XXX: should use a putc/flush combo ... later */
-static void minios_putc(int c)
+void minios_putc(int c)
 {
 
     minios_printk("%c", c);
@@ -168,7 +166,6 @@ void xprintk(const char *fmt, ...)
 }
 void init_console(void)
 {   
-    bmk_printf_init(minios_putc, NULL);
     minios_printk("Initialising console ... ");
     xencons_ring_init();    
     console_initialised = 1;

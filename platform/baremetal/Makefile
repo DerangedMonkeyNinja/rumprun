@@ -36,8 +36,8 @@ endif
 
 all: app-tools include/bmk/machine rumprun.o commonlibs buildtest
 
-OBJS_BMK-y+=		intr.o clock.o kernel.o undefs.o
-OBJS_BMK-y+=		rumpuser.o rumpconfig.o
+OBJS_BMK-y+=		intr.o clock.o kernel.o multiboot.o undefs.o
+OBJS_BMK-y+=		rumpconfig.o
 OBJS_BMK-${HASPCI}+=	rumppci.o
 
 OBJS_BMK+= ${OBJS_BMK-y}
@@ -123,7 +123,7 @@ rumprun.o: ${OBJS}
 commonlibs: ${BASEDIR}/baremetal/librumprun_base.a ${COREDIR}/baremetal/libbmk_core.a ${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a
 
 buildtest: ../../tests/hello/hello.c rumprun.o commonlibs app-tools
-	$(APP_TOOLS_CC) -DRUMPRUN_TESTER_JUSTMAIN -o $@ $<
+	$(APP_TOOLS_CC) -o $@ $< -lrumprun_tester
 
 tests: rumprun.o commonlibs app-tools
 	RUMPRUN_PLATFORM=bmk ../../tests/buildtests.sh

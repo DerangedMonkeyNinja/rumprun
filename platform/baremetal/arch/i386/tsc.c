@@ -168,11 +168,11 @@ bmk_tsc_init(void)
 
 	if (!tsc_freq) {
 		/* Bummer. Try to measure it */
-		bmk_printf("Calibrating TSC value...");
+		//bmk_printf("Calibrating TSC value...");
 		uint64_t last_tsc = bmk_cpu_counter();
 		bmk_clock_delay(100000);
 		tsc_freq = (bmk_cpu_counter() - last_tsc) * 10;
-		bmk_printf("TSC clock: %llu Hz\n", tsc_freq);
+		//bmk_printf("TSC clock: %llu Hz\n", tsc_freq);
 	}
 
 	init_tsc_tc();
