@@ -165,9 +165,10 @@ sched_updatertime(struct bmk_thread *thread)
 {
 	/* rtime += now - stime */
 	bmk_time_t now = bmk_platform_clock_monotonic();
-	if (now < thread->bt_stime)
-		bmk_printf("now = %ld, stime = %ld\n",
-							 (long)now, (long)thread->bt_stime);
+	if (now < thread->bt_stime) {
+		bmk_printf("XXX: now = %ld, stime = %ld\n",
+		    (long)now, (long)thread->bt_stime);
+	}
 	thread->bt_rtime += (now - thread->bt_stime);
 }
 

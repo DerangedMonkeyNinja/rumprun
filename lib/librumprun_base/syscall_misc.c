@@ -176,7 +176,7 @@ __getrusage50(int who, struct rusage *usage)
 	switch (who) {
 	case RUSAGE_SELF:
 	case RUSAGE_CHILDREN:
-		ut = bmk_sched_get_rtime(NULL);
+		tt = bmk_sched_get_rtime(NULL);
 		break;
 	default:
 		return EINVAL;
@@ -185,13 +185,13 @@ __getrusage50(int who, struct rusage *usage)
 	/*
 	 * Since we have no information about user vs. system time,
 	 * just split the time evenly.	This is what the NetBSD kernel
-	 * does.	Also, go ahead and convert from nsec to usec.
+	 * does. Also, go ahead and convert from nsec to usec.
 	 */
-	st = ut = tt / 2000;
-	usage->ru_utime.tv_sec = st / 100000;
-	usage->ru_utime.tv_usec = st % 100000;
-	usage->ru_stime.tv_sec = ut / 100000;
-	usage->ru_stime.tv_usec = ut % 100000;
+	st = ut = tt / 1000 / 2;
+	usage->ru_utime.tv_sec = ut / 100000;
+	usage->ru_utime.tv_usec = ut % 100000;
+	usage->ru_stime.tv_sec = st / 100000;
+	usage->ru_stime.tv_usec = st % 100000;
 
 	/* This is all bogus for now */
 	usage->ru_maxrss = 1024;
