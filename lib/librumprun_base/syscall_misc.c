@@ -188,10 +188,10 @@ __getrusage50(int who, struct rusage *usage)
 	 * does. Also, go ahead and convert from nsec to usec.
 	 */
 	st = ut = tt / 1000 / 2;
-	usage->ru_utime.tv_sec = ut / 100000;
-	usage->ru_utime.tv_usec = ut % 100000;
-	usage->ru_stime.tv_sec = st / 100000;
-	usage->ru_stime.tv_usec = st % 100000;
+	usage->ru_utime.tv_sec = ut / 1000000;
+	usage->ru_utime.tv_usec = ut % 1000000;
+	usage->ru_stime.tv_sec = st / 1000000;
+	usage->ru_stime.tv_usec = st % 1000000;
 
 	/* This is all bogus for now */
 	usage->ru_maxrss = 1024;
