@@ -168,26 +168,25 @@ int __getrusage50(int, struct rusage *);
 int
 __getrusage50(int who, struct rusage *usage)
 {
-	bmk_time_t tt = 0,
-	           st = 0,
+	bmk_time_t st = 0,
 	           ut = 0;
 
 	memset(usage, 0, sizeof(*usage));
 	switch (who) {
 	case RUSAGE_SELF:
 	case RUSAGE_CHILDREN:
-		tt = bmk_sched_get_rtime(NULL);
+		if (bmk_sched_get_rtime(&st, &ut) != 0)
+			return ENOSYS;
 		break;
 	default:
 		return EINVAL;
 	}
 
-	/*
-	 * Since we have no information about user vs. system time,
-	 * just split the time evenly.	This is what the NetBSD kernel
-	 * does. Also, go ahead and convert from nsec to usec.
-	 */
-	st = ut = tt / 1000 / 2;
+	/* convert ns to us */
+	st /= 1000;
+	ut /= 1000;
+
+	/* Now fill in the usage struct */
 	usage->ru_utime.tv_sec = ut / 1000000;
 	usage->ru_utime.tv_usec = ut % 1000000;
 	usage->ru_stime.tv_sec = st / 1000000;

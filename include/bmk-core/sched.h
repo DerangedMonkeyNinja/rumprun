@@ -85,6 +85,6 @@ bmk_time_t	bmk_platform_clock_epochoffset(void);
 
 void	bmk_platform_cpu_sched_switch(struct bmk_tcb *, struct bmk_tcb *);
 
-bmk_time_t  bmk_sched_get_rtime(struct bmk_thread *);
+int bmk_sched_get_rtime(bmk_time_t *system, bmk_time_t *user);
 
 #endif /* _BMK_CORE_SCHED_H_ */

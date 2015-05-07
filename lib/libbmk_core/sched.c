@@ -552,19 +552,22 @@ bmk_sched_yield(void)
 	bmk_sched();
 }
 
-bmk_time_t
-bmk_sched_get_rtime(struct bmk_thread *thread)
+int
+bmk_sched_get_rtime(bmk_time_t *st, bmk_time_t *ut)
 {
-	bmk_time_t total_rtime = 0;
+	bmk_assert(st);
+	bmk_assert(ut);
 
-	if (thread)
-		total_rtime = thread->bt_rtime;
-	else {
-		struct bmk_thread *it = NULL, *tmp = NULL;
-		TAILQ_FOREACH_SAFE(it, &threads, bt_entries, tmp) {
-			total_rtime += it->bt_rtime;
-		}
+	*st = *ut = 0;
+
+	struct bmk_thread *it = NULL;
+	TAILQ_FOREACH(it, &threads, bt_entries) {
+		/* external stacks mean it's a user process, I think */
+		if (it->bt_flags & THREAD_EXTSTACK)
+			*ut += it->bt_rtime;
+		else
+			*st += it->bt_rtime;
 	}
 
-	return total_rtime;
+	return (0);
 }
