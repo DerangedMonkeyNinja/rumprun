@@ -35,15 +35,8 @@ bmk_mainthread(void *cmdline)
 
     rumprun_boot(cmdline);
 
-    /*
-     * XXX: running main in a separate forked thread causes problems with
-     * polling in other pthreads, so don't do it. Just run main
-     * directly for now.
-     */
-    (void)cookie;
-    main(rumprun_cmdline_argc, rumprun_cmdline_argv);
-    //cookie = rumprun(main, rumprun_cmdline_argc, rumprun_cmdline_argv);
-    //rumprun_wait(cookie);
+    cookie = rumprun(main, rumprun_cmdline_argc, rumprun_cmdline_argv);
+    rumprun_wait(cookie);
 
     rumprun_reboot();
 }
