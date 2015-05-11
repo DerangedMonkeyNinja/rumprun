@@ -167,8 +167,8 @@ rumprun_config_net(const char *if_index)
 			    buf);
 			goto out;
 		}
-		if ((rv = rump_pub_netconfig_ipv4_ifaddr(buf, if_addr,
-			if_mask)) != 0) {
+		if ((rv = rump_pub_netconfig_ipv4_ifaddr_cidr(buf, if_addr,
+			atoi(if_mask))) != 0) {
 			warnx("rumprun_config: %s: ipv4_ifaddr failed: %s",
 				buf, strerror(rv));
 			goto out;
@@ -177,6 +177,14 @@ rumprun_config_net(const char *if_index)
 			(rv = rump_pub_netconfig_ipv4_gw(if_gw)) != 0) {
 			warnx("rumprun_config: %s: ipv4_gw failed: %s",
 				buf, strerror(rv));
+			goto out;
+		}
+	}
+	else if (strcmp(if_type, "inet6") == 0 &&
+	    strcmp(if_method, "auto") == 0) {
+		if ((rv = rump_pub_netconfig_auto_ipv6(buf)) != 0) {
+			warnx("rumprun_config: %s: auto_ipv6 failed: %s", buf,
+				strerror(rv));
 			goto out;
 		}
 	}
@@ -230,6 +238,20 @@ rumprun_deconfig_net(const char *if_index)
 	}
 	else if (strcmp(if_type, "inet") == 0 &&
 		 strcmp(if_method, "static") == 0) {
+		snprintf(buf, sizeof buf, "xenif%s", if_index);
+		if ((rv = rump_pub_netconfig_ifdown(buf)) != 0) {
+			warnx("rumprun_deconfig: %s: ifdown failed: %s", buf,
+				strerror(rv));
+			goto out;
+		}
+		if ((rv = rump_pub_netconfig_ifdestroy(buf)) != 0) {
+			printf("rumprun_deconfig: %s: ifdestroy failed: %s",
+				buf, strerror(rv));
+			goto out;
+		}
+	}
+	else if (strcmp(if_type, "inet6") == 0 &&
+		 strcmp(if_method, "auto") == 0) {
 		snprintf(buf, sizeof buf, "xenif%s", if_index);
 		if ((rv = rump_pub_netconfig_ifdown(buf)) != 0) {
 			warnx("rumprun_deconfig: %s: ifdown failed: %s", buf,

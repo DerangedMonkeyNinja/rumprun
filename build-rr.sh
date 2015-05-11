@@ -27,7 +27,6 @@ shift $((${OPTIND} - 1))
 platform=$1
 case ${platform} in
 'baremetal')
-	USETLS='-V RUMP_CURLWP=__thread'
 	script=buildme.sh
 	;;
 'xen')
@@ -58,7 +57,7 @@ esac
 export RUMPSRC
 export BUILD_QUIET
 
-( cd platform/${platform} && ./${script} ${USETLS} "$@" )
+( cd platform/${platform} && ./${script} -V RUMP_CURLWP=__thread "$@" )
 [ $? -eq 0 ] || die Build script \"$script\" failed!
 
 ln -sf platform/${platform}/rump .

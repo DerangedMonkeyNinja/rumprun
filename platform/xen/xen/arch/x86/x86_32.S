@@ -3,7 +3,7 @@
 #include <xen/arch-x86_32.h>
 
 .section __xen_guest
-	.ascii	"GUEST_OS=Mini-OS"
+	.ascii	"GUEST_OS=rumprun"
 	.ascii	",XEN_VER=xen-3.0"
 	.ascii	",VIRT_BASE=0x0" /* &_text from minios_x86_32.lds */
 	.ascii	",ELF_PADDR_OFFSET=0x0"
@@ -277,3 +277,18 @@ ENTRY(spurious_interrupt_bug)
 	pushl $0
 	pushl $do_spurious_interrupt_bug
 	jmp do_exception
+
+ENTRY(load_segmentregs)
+	movl $__KERNEL_DS, %eax
+	mov %ax, %ds
+	mov %ax, %es
+	mov %ax, %ss
+	mov %ax, %fs
+
+	movl $__KERNEL_GS, %eax
+	mov %ax, %gs
+
+	popl %eax
+	pushl $__KERNEL_CS
+	pushl %eax
+	lret

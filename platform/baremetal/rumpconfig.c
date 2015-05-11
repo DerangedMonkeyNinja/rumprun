@@ -124,22 +124,16 @@ handle_cmdline(jsmntok_t *t, int left, const char *data)
 static int
 handle_env(jsmntok_t *t, int left, const char *data)
 {
-	char buf[128];
+	char *envstr;
 
 	T_CHECKTYPE(t, data, JSMN_STRING, __func__);
 
-	if (T_SIZE(t) > sizeof(buf)-1) {
-		warnx("env string of size %d too large, ignoring", T_SIZE(t));
-		return 1;
-	}
-
-	T_STRCPY(buf, sizeof(buf), t, data);
-	/*
-	 * XXX: this doesn't work(?) since we need to putenv() into the
-	 * env of the application process, not this bootstrap process
-	 * doing the config.
-	 */
-	putenv(buf);
+	envstr = malloc(T_SIZE(t)+1);
+	if (envstr == NULL)
+		err(1, "allocate env string");
+	T_STRCPY(envstr, T_SIZE(t)+1, t, data);
+	if (putenv(envstr) == -1)
+		err(1, "putenv");
 
 	return 1;
 }
@@ -193,6 +187,7 @@ handle_net(jsmntok_t *t, int left, const char *data)
 		} else if (T_STREQ(key, data, "addr")) {
 			T_STRCPY(addr, sizeof(addr), value, data);
 		} else if (T_STREQ(key, data, "mask")) {
+			/* XXX: we could also pass mask as a number ... */
 			T_STRCPY(mask, sizeof(mask), value, data);
 		} else if (T_STREQ(key, data, "gw")) {
 			T_STRCPY(gw, sizeof(gw), value, data);
@@ -224,8 +219,8 @@ handle_net(jsmntok_t *t, int left, const char *data)
 			errx(1, "static net cfg missing addr or mask");
 		}
 
-		if ((rv = rump_pub_netconfig_ipv4_ifaddr(ifname,
-		    addr, mask)) != 0) {
+		if ((rv = rump_pub_netconfig_ipv4_ifaddr_cidr(ifname,
+		    addr, atoi(mask))) != 0) {
 			errx(1, "ifconfig \"%s\" for \"%s/%s\" failed",
 			    ifname, addr, mask);
 		}

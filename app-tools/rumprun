@@ -57,6 +57,7 @@ usage: rumprun STACK [ -ipd ] [ -D PORT ] [ -N NAME ] [ -M MEM ] [ -b BLKSPEC ] 
     -n NETSPEC configures a network interface, using one of:
        inet,dhcp - IPv4 with DHCP
        inet,static,ADDR/MASK[,GATEWAY] - IPv4 with static IP
+       inet6,auto - IPv6 with stateless autoconfiguration
     -e set guest environment VAR to VALUE
     -i attaches to domain console on startup
     -p creates the domain but leaves it paused
@@ -66,6 +67,22 @@ usage: rumprun STACK [ -ipd ] [ -D PORT ] [ -N NAME ] [ -M MEM ] [ -b BLKSPEC ] 
     When run without -i the local domain id is printed to standard output
 EOM
 	exit 1
+}
+
+store_netspec=usage
+nindex=0
+bindex=0
+
+json_append()
+{
+
+	json="${json} $*"
+}
+
+json_finalize_block()
+{
+
+	json_append '},'
 }
 
 # Detect the filesystem type of the image at $1.
@@ -91,51 +108,130 @@ detect_fstype()
 	esac
 }
 
-cidr2mask()
+xen_store_netspec()
 {
-	# Number of args to shift, 255..255, first non-255 byte, zeroes
-	set -- $(( 5 - ($1 / 8) )) 255 255 255 255 $(( (255 << (8 - ($1 % 8))) & 255 )) 0 0 0
-	[ $1 -gt 1 ] && shift $1 || shift
-	echo ${1-0}.${2-0}.${3-0}.${4-0}
+
+	echo net/${nindex}/type ${iftype} >>${xenstore}
+	echo net/${nindex}/method ${ifmethod} >>${xenstore}
+	if [ -n "${ifaddr}" ]; then
+		echo net/${nindex}/addr ${ifaddr} >>${xenstore}
+		echo net/${nindex}/netmask ${ifmask} >>${xenstore}
+	fi
+	if [ -n "${ifgw}" ]; then
+		echo net/${nindex}/gw ${ifgw} >>${xenstore}
+	fi
+}
+
+json_store_netspec()
+{
+
+	json_append '"net" : {'
+
+	# XXX: should not generate the interface here
+	opt_netif="${opt_netif} -net nic,model=virtio -net user"
+
+	# XXX: should not assume vioif or -net user
+	json_append	'"if":		"'vioif${nindex}'",'
+
+	json_append	'"type":	"'${iftype}'",'
+	json_append	'"method":	"'${ifmethod}'",'
+
+	[ -n "${ifaddr}" ] || { json_finalize_block ; return ; }
+
+	json_append	'"addr":	"'${ifaddr}'",'
+	json_append	'"mask":	"'${ifmask}'",'
+
+	[ -n "${ifgw}" ] || { json_finalize_block ; return ; }
+
+	json_append	'"gw":		"'${ifgw}'",'
+
+	json_finalize_block
 }
 
 parse_netspec()
 {
-	# Call ourselves recursively to split $@ on ,
-	if [ "$IFS" != "," ]; then
-		OLDIFS=$IFS
-		IFS=, parse_netspec "$@"
-		return $?
-	else
-		set -- $1
-		IFS=$OLDIFS
-	fi
+
+	IFS=,
+	set -- $1
+	unset IFS
+
 	[ $# -lt 2 ] && usage
 	iftype=$1
 	ifmethod=$2
-	[ "${iftype}" != "inet" ] && return 1
+	[ "${iftype}" != "inet" -a "${iftype}" != "inet6" ] && return 1
 	conf_vif="${conf_vif}'',"
 	case ${ifmethod} in
+		auto)
+			;;
 		dhcp)
-			echo net/${nindex}/type inet >>${xenstore}
-			echo net/${nindex}/method dhcp >>${xenstore}
 			;;
 		static)
 			ifaddr=${3%/*}
-			ifmask=$(cidr2mask ${3#*/})
+			ifmask=${3#*/}
+			[ -n "${ifaddr}" ] || usage
+			[ -n "${ifmask}" ] || usage
 			ifgw=$4
-			echo net/${nindex}/type inet >>${xenstore}
-			echo net/${nindex}/method static >>${xenstore}
-			echo net/${nindex}/addr ${ifaddr} >>${xenstore}
-			echo net/${nindex}/netmask ${ifmask} >>${xenstore}
-			[ -n "${ifgw}" ] &&
-				echo net/${nindex}/gw ${ifgw} >>${xenstore}
 			;;
 		*)
 			return 1
 			;;
 	esac
+
+	${store_netspec}
+	nindex=$(expr $nindex + 1)
+
 	return 0
+}
+
+xen_store_blkspec()
+{
+
+	vdev=hd$(echo ${bindex} | tr '[0-9]' '[a-j]')
+	conf_disk="${conf_disk}'file:$image,$vdev,w',"
+	echo blk/${bindex}/type etfs >>${xenstore}
+	echo blk/${bindex}/fstype $fstype >>${xenstore}
+	if [ -n "$mountpoint" ]; then
+		echo blk/${bindex}/mountpoint $mountpoint\
+		>>${xenstore}
+	fi
+}
+
+json_store_blkspec()
+{
+
+	# XXX: should not generate the interface here
+	opt_drivespec="${opt_drivespec} -drive if=virtio,file=${image}"
+
+	# if the image does not need to be mounted, we're done
+	[ -n "${mountpoint}" ] || return
+
+	json_append '"blk" : {'
+
+	# XXX: should not assume ld (virtio)
+	json_append	'"dev":		"'/dev/ld${bindex}a'",'
+	json_append	'"fstype":	"'${fstype}'",'
+	json_append	'"mountpoint":	"'${mountpoint}'",'
+
+	json_finalize_block
+}
+
+parse_blkspec()
+{
+	spec=$1
+
+	image=${spec%,*}
+	image=$(readlink -f ${image})
+	mountpoint=$(echo ${spec} | sed -n 's/.*,\(.*\)/\1/p')
+	[ -n "$image" ] || usage
+	[ -f "$image" ] || err File $image does not exist
+
+	if [ -n "$mountpoint" ]; then
+		fstype=$(detect_fstype $image)
+		[ $? -ne 0 ] && err File $image: unknown fstype
+	fi
+
+	${store_blkspec}
+	bindex=$(expr $bindex + 1)
 }
 
 # run_xen: Generate Xen configuration and run application stack.
@@ -150,13 +246,14 @@ run_xen()
 		fi
 	done
 
+	store_blkspec=xen_store_blkspec
+	store_netspec=xen_store_netspec
+
 	conf=/tmp/xr.conf.$$
 	xenstore=/tmp/xr.store.$$
 	>${conf}
 	>${xenstore}
 	OPTIND=1
-	nindex=0
-	bindex=0
 	conf_disk=
 	conf_vif=
 	opt_pause=
@@ -167,47 +264,28 @@ run_xen()
 	opt_debug=
 	opt_cansudo=false
 	sudo=''
+
 	while getopts "${myoptstr}" opt; do
 		case "$opt" in
 		# -n: NETSPEC
 		n)
 			parse_netspec "${OPTARG}" || usage
-			nindex=$(expr $nindex + 1)
 			;;
 		# -b: BLKSPEC: hostpath,mountpoint
 		b)
-			image=${OPTARG%,*}
-			image=$(readlink -f ${image})
-			mountpoint=$(echo $OPTARG | sed -n 's/.*,\(.*\)/\1/p')
-			[ -n "$image" ] || usage
-			[ -f "$image" ] || err File $image does not exist
-
-			if [ -n "$mountpoint" ]; then
-				fstype=$(detect_fstype $image)
-				[ $? -ne 0 ] && err File $image: unknown fstype
-			fi
-
-			vdev=hd$(echo $bindex | tr '[0-9]' '[a-j]')
-			conf_disk="${conf_disk}'file:$image,$vdev,w',"
-			echo blk/${bindex}/type etfs >>${xenstore}
-			echo blk/${bindex}/fstype $fstype >>${xenstore}
-			if [ -n "$mountpoint" ]; then
-				echo blk/${bindex}/mountpoint $mountpoint\
-					>>${xenstore}
-			fi
-			bindex=$(expr $bindex + 1)
+			parse_blkspec "${OPTARG}" || usage
 			;;
 		# -e: Set guest environment variable.
 		e)
 			case "${OPTARG}" in
 			*=*)
 				key=${OPTARG%%=*}
-					value=${OPTARG#*=}
-					;;
-				*)
-					key=${OPTARG}
-					value=
-					;;
+				value=${OPTARG#*=}
+				;;
+			*)
+				key=${OPTARG}
+				value=
+				;;
 			esac
 			[ -n "$key" ] || usage
 			echo environ/${key} "${value}" >>${xenstore}
@@ -308,20 +386,28 @@ EOM
 run_qemu()
 {
 
+	store_blkspec=json_store_blkspec
+	store_netspec=json_store_netspec
+
 	opt_interactive=
 	opt_drivespec=
 	opt_debug=
 	opt_pause=
+	opt_netif=
+	json_append '{'
 	while getopts "${myoptstr}" opt; do
 		case "$opt" in
 		b)
-			image=$( ( IFS=, ; set -- $OPTARG ; \
-			    [ $# -gt 1 ] && die -b mountpoints not supported ; \
-			    echo $1) )
-			opt_drivespec="-drive if=virtio,file=${image}"
+			parse_blkspec "${OPTARG}" || usage
+			;;
+		e)
+			json_append "\"env\": \"${OPTARG}\","
 			;;
 		i)
 			opt_interactive=1
+			;;
+		n)
+			parse_netspec "${OPTARG}" || usage
 			;;
 		p)
 			opt_pause="-S"
@@ -338,15 +424,20 @@ run_qemu()
 		esac
 	done
 	shift $((${OPTIND}-1))
-	cmdline="{ \"cmdline\": \""$@"\" }"
 
-	qemucmd="qemu-system-i386 -net none -no-kvm ${opt_drivespec} \
+	json_append "\"cmdline\": \""$@"\""
+	json_append '}'
+	json_coma="$(echo ${json} | sed 's/,/,,/g')"
+
+	[ -n "${opt_netif}" ] || opt_netif="-net none"
+
+	qemucmd="qemu-system-i386 ${opt_netif} -no-kvm ${opt_drivespec} \
 	    ${opt_debug} ${opt_pause} -kernel $1"
 	if [ -n "$opt_interactive" ]; then
-		${qemucmd} -append "${cmdline}"
+		${qemucmd} -append "${json_coma}"
 	else
 		qemucmd="${qemucmd} -display none"
-		${qemucmd} -append "${cmdline}" 1>/dev/null 2>&1 &
+		${qemucmd} -append "${json_coma}" 1>/dev/null 2>&1 &
 		echo qemu:$!
 	fi
 }
