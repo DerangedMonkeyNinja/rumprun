@@ -81,8 +81,11 @@ rumpuser_getparam(const char *name, void *buf, size_t buflen)
 		char *res = buf;
 		unsigned i, j;
 
-		/* use 50% memory for rump kernel, with an upper limit */
-		memsize = MIN(MEMSIZE_HILIMIT, bmk_platform_memsize()/2);
+		/*
+		 * XXX: The original rump kernel only used half of the
+		 * the available memory, but I want to use all of it. :)
+		 */
+		memsize = bmk_platform_memsize();
 		if (memsize < MEMSIZE_WARNLIMIT) {
 			bmk_printf("rump kernel warning: low on physical "
 			    "memory quota (%lu bytes)\n", memsize);
