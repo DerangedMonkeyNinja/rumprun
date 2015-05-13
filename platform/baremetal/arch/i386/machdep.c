@@ -63,8 +63,6 @@ void bmk_cpu_isr_10(void);
 void bmk_cpu_isr_11(void);
 
 /* clock routines */
-void bmk_clock_startrtclock(void);  /* in clock.c */
-void bmk_clock_delay(unsigned int);
 void bmk_init_tsc_tc(void);
 
 void bmk_cpu_identify(void);
@@ -216,9 +214,6 @@ bmk_cpu_init(void)
 	 * a reasonable clock to use...
 	 */
 	bmk_cpu_identify();
-
-	/* start the realtime clock */
-	bmk_clock_startrtclock();
 }
 
 int

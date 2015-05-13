@@ -31,11 +31,11 @@
 #include <bmk-core/string.h>
 #include <bmk-core/timetc.h>
 
-#include "clock.h"
 #include "pvclock.h"
 #include "cpufunc.h"
 #include "cpuvar.h"
 #include "specialreg.h"
+#include "timer.h"
 #include "tsc.h"
 
 static uint64_t tsc_freq = 0;
@@ -168,11 +168,9 @@ bmk_tsc_init(void)
 
 	if (!tsc_freq) {
 		/* Bummer. Try to measure it */
-		//bmk_printf("Calibrating TSC value...");
 		uint64_t last_tsc = bmk_cpu_counter();
-		bmk_clock_delay(100000);
+		bmk_timer_delay(100000);
 		tsc_freq = (bmk_cpu_counter() - last_tsc) * 10;
-		//bmk_printf("TSC clock: %llu Hz\n", tsc_freq);
 	}
 
 	init_tsc_tc();

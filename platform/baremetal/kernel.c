@@ -27,6 +27,7 @@
 #include <bmk/types.h>
 #include <bmk/multiboot.h>
 #include <bmk/kernel.h>
+#include <bmk/timer.h>
 
 #include <bmk-core/core.h>
 #include <bmk-core/string.h>
@@ -151,8 +152,9 @@ bmk_platform_memsize(void)
 void
 bmk_platform_block(bmk_time_t until)
 {
-
-	bmk_cpu_nanohlt();
+	if (bmk_timer_alarm(until) == 0) {
+		bmk_cpu_nanohlt();
+	}
 }
 
 unsigned long
