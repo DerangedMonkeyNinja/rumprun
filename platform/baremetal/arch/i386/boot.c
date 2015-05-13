@@ -29,7 +29,6 @@
 
 #include <bmk-core/core.h>
 #include <bmk-core/sched.h>
-#include <bmk-core/printf.h>
 
 #include "kvm.h"
 #include "tsc.h"
@@ -41,6 +40,7 @@ bmk_cpu_boot(struct multiboot_info *mbi)
 {
 
 	bmk_cpu_init();
+	bmk_sched_init();
 	bmk_multiboot(mbi);
 
 	if (bmk_is_kvm_guest()) {

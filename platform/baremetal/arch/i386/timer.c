@@ -39,13 +39,13 @@
 
 #include <bmk/types.h>
 #include <bmk/kernel.h>
+#include <bmk/timer.h>
+
 #include <bmk-core/sched.h>
 #include <bmk-core/printf.h>
 
 #include "isareg.h"
 #include "i8253reg.h"
-
-#include "timer.h"
 
 void bmk_cpu_enable_intr(void);
 void bmk_cpu_disable_intr(void);

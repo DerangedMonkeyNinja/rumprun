@@ -78,6 +78,15 @@
 #define THREAD_JOINED	0x04
 #define THREAD_EXTSTACK	0x08
 #define THREAD_TIMEDOUT	0x10
+#define THREAD_DEAD	0x20
+
+extern const char _tdata_start[], _tdata_end[];
+extern const char _tbss_start[], _tbss_end[];
+#define TDATASIZE (_tdata_end - _tdata_start)
+#define TBSSSIZE (_tbss_end - _tbss_start)
+#define TCBOFFSET \
+    (((TDATASIZE + TBSSSIZE + sizeof(void *)-1)/sizeof(void *))*sizeof(void *))
+#define TLSAREASIZE (TCBOFFSET + BMK_TLS_EXTRA)
 
 struct bmk_thread {
 	char bt_name[NAME_MAXLEN];
@@ -101,6 +110,7 @@ struct bmk_thread {
 
 	TAILQ_ENTRY(bmk_thread) bt_entries;
 };
+__thread struct bmk_thread *bmk_current;
 
 static TAILQ_HEAD(, bmk_thread) zombies = TAILQ_HEAD_INITIALIZER(zombies);
 static TAILQ_HEAD(, bmk_thread) threads = TAILQ_HEAD_INITIALIZER(threads);
@@ -157,26 +167,8 @@ sched_switch(struct bmk_thread *prev, struct bmk_thread *next)
 
 	if (scheduler_hook)
 		scheduler_hook(prev->bt_cookie, next->bt_cookie);
-	bmk_platform_cpu_sched_switch(&prev->bt_tcb, &next->bt_tcb);
-}
-
-static void
-sched_updatertime(struct bmk_thread *thread)
-{
-	/* rtime += now - stime */
-	bmk_time_t now = bmk_platform_clock_monotonic();
-	if (now < thread->bt_stime) {
-		bmk_printf("XXX: now = %ld, stime = %ld\n",
-		    (long)now, (long)thread->bt_stime);
-	}
-	thread->bt_rtime += (now - thread->bt_stime);
-}
-
-struct bmk_thread *
-bmk_sched_current(void)
-{
-
-	return bmk_cpu_sched_current();
+	bmk_platform_cpu_sched_settls(&next->bt_tcb);
+	bmk_cpu_sched_switch(&prev->bt_tcb, &next->bt_tcb);
 }
 
 void
@@ -191,13 +183,25 @@ bmk_sched_dumpqueue(void)
 	bmk_printf("END schedqueue dump\n");
 }
 
+static void
+sched_updatertime(struct bmk_thread *thread)
+{
+	/* rtime += now - stime */
+	bmk_time_t now = bmk_platform_clock_monotonic();
+	if (now < thread->bt_stime) {
+		bmk_printf("XXX: now = %ld, stime = %ld\n",
+		    (long)now, (long)thread->bt_stime);
+	}
+	thread->bt_rtime += (now - thread->bt_stime);
+}
+
 void
 bmk_sched(void)
 {
-	struct bmk_thread *prev, *next, *thread, *tmp;
+	struct bmk_thread *prev, *next, *thread;
 	unsigned long flags;
 
-	prev = bmk_sched_current();
+	prev = bmk_current;
 	flags = bmk_platform_splhigh();
 
 #if 0
@@ -223,7 +227,7 @@ bmk_sched(void)
 		wakeup = tm + 1*1000*1000*1000ULL;
 
 		next = NULL;
-		TAILQ_FOREACH_SAFE(thread, &threads, bt_entries, tmp) {
+		TAILQ_FOREACH(thread, &threads, bt_entries) {
 			if (!is_runnable(thread)
 			    && thread->bt_wakeup_time
 			      != BMK_SCHED_BLOCK_INFTIME) {
@@ -250,19 +254,22 @@ bmk_sched(void)
 
 	bmk_platform_splx(flags);
 
+	bmk_assert((next->bt_flags & THREAD_DEAD) == 0);
+
 	if (prev != next) {
 		next->bt_stime = bmk_platform_clock_monotonic();
 		sched_switch(prev, next);
 	}
 
-	/* reaper */
-	TAILQ_FOREACH_SAFE(thread, &zombies, bt_entries, tmp) {
-		if (thread != prev) {
-			TAILQ_REMOVE(&zombies, thread, bt_entries);
-			if ((thread->bt_flags & THREAD_EXTSTACK) == 0)
-				stackfree(thread);
-			bmk_memfree(thread);
-		}
+	/*
+	 * Reaper.  This always runs in the context of the first "non-virgin"
+	 * thread that was scheduled after the current thread decided to exit.
+	 */
+	while ((thread = TAILQ_FIRST(&zombies)) != NULL) {
+		TAILQ_REMOVE(&zombies, thread, bt_entries);
+		if ((thread->bt_flags & THREAD_EXTSTACK) == 0)
+			stackfree(thread);
+		bmk_memfree(thread);
 	}
 
 	prev->bt_stime = bmk_platform_clock_monotonic();
@@ -270,50 +277,66 @@ bmk_sched(void)
 
 /*
  * Allocate tls and initialize it.
- *
- * XXX: this needs to change in the future so that
- * we put the tcb in the same space instead of having multiple
- * random copies flying around.
+ * NOTE: does not initialize tcb, see inittcb().
  */
-extern const char _tdata_start[], _tdata_end[];
-extern const char _tbss_start[], _tbss_end[];
-static int
-allocothertls(struct bmk_thread *thread)
+void *
+bmk_sched_tls_alloc(void)
 {
-	const unsigned long tdatasize = _tdata_end - _tdata_start;
-	const unsigned long tbsssize = _tbss_end - _tbss_start;
-	struct bmk_tcb *tcb = &thread->bt_tcb;
-	unsigned long *tcbptr;
 	char *tlsmem;
 
-	tlsmem = bmk_memalloc(tdatasize + tbsssize + BMK_TLS_EXTRA, 0);
+	tlsmem = bmk_memalloc(TLSAREASIZE, 0);
+	bmk_memcpy(tlsmem, _tdata_start, TDATASIZE);
+	bmk_memset(tlsmem + TDATASIZE, 0, TBSSSIZE);
 
-	bmk_memcpy(tlsmem, _tdata_start, tdatasize);
-	bmk_memset(tlsmem + tdatasize, 0, tbsssize);
-
-	/* assumes TLS variant 2 for now */
-	tcbptr = (unsigned long *)(tlsmem + tdatasize + tbsssize);
-	*tcbptr = (unsigned long)tcbptr;
-
-	tcb->btcb_tp = (unsigned long)tcbptr;
-	tcb->btcb_tpsize = tdatasize + tbsssize;
-
-	return 0;
+	return tlsmem + TCBOFFSET;
 }
 
-static void
-freeothertls(struct bmk_thread *thread)
+/*
+ * Free tls
+ */
+void
+bmk_sched_tls_free(void *mem)
 {
-	void *mem;
 
-	mem = (void *)(thread->bt_tcb.btcb_tp-thread->bt_tcb.btcb_tpsize);
+	mem = (void *)((unsigned long)mem - TCBOFFSET);
 	bmk_memfree(mem);
 }
 
+void *
+bmk_sched_gettcb(void)
+{
+
+	return (void *)bmk_current->bt_tcb.btcb_tp;
+}
+
+static void
+inittcb(struct bmk_tcb *tcb, void *tlsarea, unsigned long tlssize)
+{
+
+#if 0
+	/* TCB initialization for Variant I */
+	/* TODO */
+#else
+	/* TCB initialization for Variant II */
+	*(void **)tlsarea = tlsarea;
+	tcb->btcb_tp = (unsigned long)tlsarea;
+	tcb->btcb_tpsize = tlssize;
+#endif
+}
+
+static long bmk_curoff;
+static void
+initcurrent(void *tcb, struct bmk_thread *value)
+{
+	struct bmk_thread **dst = (void *)((unsigned long)tcb + bmk_curoff);
+
+	*dst = value;
+}
+
 struct bmk_thread *
-bmk_sched_create(const char *name, void *cookie, int joinable,
+bmk_sched_create_withtls(const char *name, void *cookie, int joinable,
 	void (*f)(void *), void *data,
-	void *stack_base, unsigned long stack_size)
+	void *stack_base, unsigned long stack_size, void *tlsarea)
 {
 	struct bmk_thread *thread;
 	unsigned long flags;
@@ -336,10 +359,10 @@ bmk_sched_create(const char *name, void *cookie, int joinable,
 	    stack_base, stack_size);
 
 	thread->bt_cookie = cookie;
-
 	thread->bt_wakeup_time = BMK_SCHED_BLOCK_INFTIME;
 
-	allocothertls(thread);
+	inittcb(&thread->bt_tcb, tlsarea, TCBOFFSET);
+	initcurrent(tlsarea, thread);
 
 	flags = bmk_platform_splhigh();
 	TAILQ_INSERT_TAIL(&threads, thread, bt_entries);
@@ -347,6 +370,18 @@ bmk_sched_create(const char *name, void *cookie, int joinable,
 	set_runnable(thread);
 
 	return thread;
+}
+
+struct bmk_thread *
+bmk_sched_create(const char *name, void *cookie, int joinable,
+	void (*f)(void *), void *data,
+	void *stack_base, unsigned long stack_size)
+{
+	void *tlsarea;
+
+	tlsarea = bmk_sched_tls_alloc();
+	return bmk_sched_create_withtls(name, cookie, joinable, f, data,
+	    stack_base, stack_size, tlsarea);
 }
 
 struct join_waiter {
@@ -357,9 +392,9 @@ struct join_waiter {
 static TAILQ_HEAD(, join_waiter) joinwq = TAILQ_HEAD_INITIALIZER(joinwq);
 
 void
-bmk_sched_exit(void)
+bmk_sched_exit_withtls(void)
 {
-	struct bmk_thread *thread = bmk_sched_current();
+	struct bmk_thread *thread = bmk_current;
 	struct join_waiter *jw_iter;
 	unsigned long flags;
 
@@ -376,15 +411,16 @@ bmk_sched_exit(void)
 				break;
 			}
 		}
-		bmk_sched_block(thread);
+		bmk_sched_blockprepare();
 		bmk_sched();
 		flags = bmk_platform_splhigh();
 	}
-	freeothertls(thread);
 
 	/* Remove from the thread list */
 	TAILQ_REMOVE(&threads, thread, bt_entries);
 	clear_runnable(thread);
+	thread->bt_flags |= THREAD_DEAD;
+
 	/* Put onto exited list */
 	TAILQ_INSERT_HEAD(&zombies, thread, bt_entries);
 	bmk_platform_splx(flags);
@@ -395,10 +431,18 @@ bmk_sched_exit(void)
 }
 
 void
+bmk_sched_exit(void)
+{
+
+	bmk_sched_tls_free((void *)bmk_current->bt_tcb.btcb_tp);
+	bmk_sched_exit_withtls();
+}
+
+void
 bmk_sched_join(struct bmk_thread *joinable)
 {
 	struct join_waiter jw;
-	struct bmk_thread *thread = bmk_sched_current();
+	struct bmk_thread *thread = bmk_current;
 	unsigned long flags;
 
 	bmk_assert(joinable->bt_flags & THREAD_MUSTJOIN);
@@ -411,7 +455,7 @@ bmk_sched_join(struct bmk_thread *joinable)
 		jw.jw_thread = thread;
 		jw.jw_wanted = joinable;
 		TAILQ_INSERT_TAIL(&joinwq, &jw, jw_entries);
-		bmk_sched_block(thread);
+		bmk_sched_blockprepare();
 		bmk_sched();
 		TAILQ_REMOVE(&joinwq, &jw, jw_entries);
 
@@ -426,25 +470,46 @@ bmk_sched_join(struct bmk_thread *joinable)
 	bmk_sched_wake(joinable);
 }
 
+/*
+ * These suspend calls are different from block calls in the that
+ * can be used to block other threads.  The only reason we need these
+ * was because someone was clever enough to invent _np interfaces for
+ * libpthread which allow randomly suspending other threads.
+ */
 void
-bmk_sched_block_timeout(struct bmk_thread *thread, bmk_time_t deadline)
+bmk_sched_suspend(struct bmk_thread *thread)
 {
+
+	bmk_platform_halt("sched_suspend unimplemented");
+}
+
+void
+bmk_sched_unsuspend(struct bmk_thread *thread)
+{
+
+	bmk_platform_halt("sched_unsuspend unimplemented");
+}
+
+void
+bmk_sched_blockprepare_timeout(bmk_time_t deadline)
+{
+	struct bmk_thread *thread = bmk_current;
 
 	thread->bt_wakeup_time = deadline;
 	clear_runnable(thread);
 }
 
 void
-bmk_sched_block(struct bmk_thread *thread)
+bmk_sched_blockprepare(void)
 {
 
-	bmk_sched_block_timeout(thread, BMK_SCHED_BLOCK_INFTIME);
+	bmk_sched_blockprepare_timeout(BMK_SCHED_BLOCK_INFTIME);
 }
 
 int
 bmk_sched_nanosleep_abstime(bmk_time_t nsec)
 {
-	struct bmk_thread *thread = bmk_sched_current();
+	struct bmk_thread *thread = bmk_current;
 	int rv;
 
 	thread->bt_flags &= ~THREAD_TIMEDOUT;
@@ -473,18 +538,53 @@ bmk_sched_wake(struct bmk_thread *thread)
 	set_runnable(thread);
 }
 
+/*
+ * Calculate offset of bmk_current early, so that we can use it
+ * in thread creation.  Attempt to not depend on allocating the
+ * TLS area so that we don't have to have malloc initialized.
+ * We will properly initialize TLS for the main thread later
+ * when we start the main thread (which is not necessarily the
+ * first thread that we create).
+ */
 void
-bmk_sched_init(void (*mainfun)(void *), void *arg)
+bmk_sched_init(void)
+{
+	unsigned long tlsinit;
+	struct bmk_tcb tcbinit;
+
+	inittcb(&tcbinit, &tlsinit, 0);
+	bmk_platform_cpu_sched_settls(&tcbinit);
+
+	/*
+	 * Not sure if this is necessary, but better to be
+	 * Marvin the Paranoid Paradroid than get eaten by 999
+	 */
+	__asm__ __volatile__("" ::: "memory");
+	bmk_curoff = (unsigned long)&bmk_current - (unsigned long)&tlsinit;
+	__asm__ __volatile__("" ::: "memory");
+
+	/*
+	 * Set TLS back to 0 so that it's easier to catch someone trying
+	 * to use it until we get TLS really initialized.
+	 */
+	tcbinit.btcb_tp = 0;
+	bmk_platform_cpu_sched_settls(&tcbinit);
+}
+
+void __attribute__((noreturn))
+bmk_sched_startmain(void (*mainfun)(void *), void *arg)
 {
 	struct bmk_thread *mainthread;
 	struct bmk_thread initthread;
 
-	mainthread = bmk_sched_create("main", NULL, 0, mainfun, arg, NULL, 0);
+	bmk_memset(&initthread, 0, sizeof(initthread));
+	bmk_strcpy(initthread.bt_name, "init");
+
+	mainthread = bmk_sched_create("main", NULL, 0,
+	    mainfun, arg, NULL, 0);
 	if (mainthread == NULL)
 		bmk_platform_halt("failed to create main thread");
 
-	bmk_memset(&initthread, 0, sizeof(initthread));
-	bmk_strcpy(initthread.bt_name, "init");
 	sched_switch(&initthread, mainthread);
 
 	bmk_platform_halt("bmk_sched_init unreachable");
@@ -500,10 +600,9 @@ bmk_sched_set_hook(void (*f)(void *, void *))
 struct bmk_thread *
 bmk_sched_init_mainlwp(void *cookie)
 {
-	struct bmk_thread *current = bmk_sched_current();
 
-	current->bt_cookie = cookie;
-	return current;
+	bmk_current->bt_cookie = cookie;
+	return bmk_current;
 }
 
 const char *
@@ -513,38 +612,22 @@ bmk_sched_threadname(struct bmk_thread *thread)
 	return thread->bt_name;
 }
 
+/*
+ * XXX: this does not really belong here, but libbmk_rumpuser needs
+ * to be able to set an errno, so we can't push it into libc without
+ * violating abstraction layers.
+ */
 int *
 bmk_sched_geterrno(void)
 {
-	struct bmk_thread *thread = bmk_sched_current();
 
-	return &thread->bt_errno;
-}
-
-void
-bmk_sched_settls(struct bmk_thread *thread, unsigned int which, void *value)
-{
-
-	if (which >= TLS_COUNT) {
-		bmk_platform_halt("out of bmk sched tls space");
-	}
-	thread->bt_tls[which] = value;
-}
-
-void *
-bmk_sched_gettls(struct bmk_thread *thread, unsigned int which)
-{
-
-	if (which >= TLS_COUNT) {
-		bmk_platform_halt("out of bmk sched tls space");
-	}
-	return thread->bt_tls[which];
+	return &bmk_current->bt_errno;
 }
 
 void
 bmk_sched_yield(void)
 {
-	struct bmk_thread *current = bmk_sched_current();
+	struct bmk_thread *current = bmk_current;
 
 	TAILQ_REMOVE(&threads, current, bt_entries);
 	TAILQ_INSERT_TAIL(&threads, current, bt_entries);

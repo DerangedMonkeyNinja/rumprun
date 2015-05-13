@@ -26,6 +26,7 @@
 
 #include <bmk/kernel.h>
 #include <bmk/types.h>
+#include <bmk/timer.h>
 
 #include <bmk-core/printf.h>
 #include <bmk-core/string.h>
@@ -35,7 +36,6 @@
 #include "cpufunc.h"
 #include "cpuvar.h"
 #include "specialreg.h"
-#include "timer.h"
 #include "tsc.h"
 
 static uint64_t tsc_freq = 0;

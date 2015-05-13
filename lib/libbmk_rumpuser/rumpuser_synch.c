@@ -55,11 +55,11 @@ wait(struct waithead *wh, bmk_time_t wakeup)
 	if (wakeup != BMK_SCHED_BLOCK_INFTIME)
 		wakeup += bmk_platform_clock_monotonic();
 
-	w.who = bmk_sched_current();
+	w.who = bmk_current;
 	w.onlist = 1;
 	TAILQ_INSERT_TAIL(wh, &w, entries);
 
-	bmk_sched_block_timeout(w.who, wakeup);
+	bmk_sched_blockprepare_timeout(wakeup);
 	bmk_sched();
 
 	/* woken up by timeout? */
@@ -171,9 +171,8 @@ int
 rumpuser_mutex_tryenter(struct rumpuser_mtx *mtx)
 {
 	struct lwp *l = rumpuser_curlwp();
-	struct bmk_thread *current = bmk_sched_current();
 
-	if (mtx->bmk_o == current) {
+	if (mtx->bmk_o == bmk_current) {
 		bmk_platform_halt("rumpuser mutex: locking against myself");
 	}
 	if (mtx->v)
@@ -181,7 +180,7 @@ rumpuser_mutex_tryenter(struct rumpuser_mtx *mtx)
 
 	mtx->v = 1;
 	mtx->o = l;
-	mtx->bmk_o = current;
+	mtx->bmk_o = bmk_current;
 
 	return 0;
 }
@@ -455,10 +454,10 @@ rumpuser_cv_has_waiters(struct rumpuser_cv *cv, int *rvp)
  * curlwp
  */
 
+static __thread struct lwp *current_lwp;
 void
 rumpuser_curlwpop(int enum_rumplwpop, struct lwp *l)
 {
-	struct bmk_thread *thread;
 	enum rumplwpop op = enum_rumplwpop;
 
 	switch (op) {
@@ -466,14 +465,12 @@ rumpuser_curlwpop(int enum_rumplwpop, struct lwp *l)
 	case RUMPUSER_LWP_DESTROY:
 		break;
 	case RUMPUSER_LWP_SET:
-		bmk_assert(rumpuser_curlwp() == NULL);
-		thread = bmk_sched_current();
-		bmk_sched_settls(thread, 0, l);
+		bmk_assert(current_lwp == NULL);
+		current_lwp = l;
 		break;
 	case RUMPUSER_LWP_CLEAR:
-		bmk_assert(rumpuser_curlwp() == l);
-		thread = bmk_sched_current();
-		bmk_sched_settls(thread, 0, NULL);
+		bmk_assert(current_lwp == l);
+		current_lwp = NULL;
 		break;
 	}
 }
@@ -482,5 +479,5 @@ struct lwp *
 rumpuser_curlwp(void)
 {
 
-	return bmk_sched_gettls(bmk_sched_current(), 0);
+	return current_lwp;
 }

@@ -175,8 +175,7 @@ void
 bmk_run(char *cmdline)
 {
 
-	/* initialize scheduler and jump to main thread */
-	bmk_sched_init(bmk_mainthread, cmdline);
+	bmk_sched_startmain(bmk_mainthread, cmdline);
 }
 
 void __attribute__((noreturn))
