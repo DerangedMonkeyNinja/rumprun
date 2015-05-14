@@ -354,6 +354,7 @@ bmk_sched(void)
 
 	TAILQ_REMOVE(&runq, next, bt_schedq);
 	setflags(next, THREAD_RUNNING, THREAD_RUNQ);
+	next->bt_stime = bmk_platform_clock_monotonic();
 	bmk_platform_splx(flags);
 
 	/*
@@ -362,7 +363,6 @@ bmk_sched(void)
 	 *  + interrupt handler woke us up before anything else was scheduled
 	 */
 	if (prev != next) {
-		next->bt_stime = bmk_platform_clock_monotonic();
 		sched_switch(prev, next);
 	}
 
@@ -376,8 +376,6 @@ bmk_sched(void)
 			stackfree(thread);
 		bmk_memfree(thread);
 	}
-
-	prev->bt_stime = bmk_platform_clock_monotonic();
 }
 
 /*
