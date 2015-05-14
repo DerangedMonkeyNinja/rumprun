@@ -34,7 +34,7 @@
  */
 
 /*
- * Routines for driving the i8254 Programmable Interrupt Timer (PIT)
+ * Routines for driving the i8253/i8254 Programmable Interrupt Timer (PIT)
  */
 
 #include <bmk/types.h>
@@ -42,7 +42,6 @@
 #include <bmk/timer.h>
 
 #include <bmk-core/sched.h>
-#include <bmk-core/printf.h>
 
 #include "isareg.h"
 #include "i8253reg.h"
@@ -124,6 +123,8 @@ set_i8254_freq(int mode, uint64_t period)
 /*
  * Wait approximately `n' microseconds.
  * Don't rely on this being particularly accurate.
+ * XXX: We don't bother checking the current state of the PIT, so
+ * caveat caller.
  */
 void
 bmk_timer_delay(unsigned int n)
