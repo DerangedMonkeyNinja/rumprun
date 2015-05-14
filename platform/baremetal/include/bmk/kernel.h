@@ -31,8 +31,8 @@ uint64_t bmk_cpu_counter(void);
 
 void bmk_isr_clock(void);
 void bmk_isr(int);
-int bmk_isr_init(void);
-int bmk_isr_netinit(int (*)(void *), void *, int);
+int bmk_intr_init(void);
+int bmk_isr_init(int (*)(void *), void *, int);
 
 void bmk_mainthread(void *);
 
