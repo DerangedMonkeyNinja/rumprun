@@ -13,6 +13,7 @@ CFLAGS+=	${BUILDRUMP_TOOL_CFLAGS}
 # not write the 64bit bootstrap.
 supported= false
 HASPCI= y
+HASACPI= y
 # assume we're doing "make clean"
 MACHINE?= i386
 ifeq (${MACHINE},i386)
@@ -78,9 +79,15 @@ RUMPKERN_LIB=	${LIBS_VIO_NET}					\
 COREDIR:=	$(shell pwd)/../../lib/libbmk_core
 RUMPUSERDIR:=	$(shell pwd)/../../lib/libbmk_rumpuser
 BASEDIR:=	$(shell pwd)/../../lib/librumprun_base
+ACPICADIR:=	$(shell pwd)/../../lib/librumprun_acpica
 
 OBJS_BMK+=	init.o
 LIBS_USER=	-L${BASEDIR}/baremetal -L${COREDIR}/baremetal -L${RUMPUSERDIR}/baremetal --start-group -lrumprun_base -lpthread -lc --end-group -lbmk_rumpuser -lbmk_core
+
+ifeq ($(HASACPI), y)
+LIBS_USER := -L${ACPICADIR}/baremetal -lrumprun_acpica $(LIBS_USER)
+endif
+
 RUMP_LDLIBS=	--whole-archive ${RUMPKERN_LIB} --no-whole-archive ${LIBS_USER}
 
 OBJS= ${OBJS_BMK} ${OBJS_APP}
@@ -117,10 +124,28 @@ ${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a:
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal obj \
 	    && ${RUMPMAKE} MAKEOBJDIR=baremetal dependall )
 
+ifeq ($(HASACPI), y)
+CPPFLAGS+=	-DRUMP_ACPI
+
+.PHONY: ${ACPICADIR}/baremetal/librumprun_acpica.a
+${ACPICADIR}/baremetal/librumprun_acpica.a:
+	(cd ${ACPICADIR} \
+		&& ${RUMPMAKE} MAKEOBJDIR=baremetal obj \
+		&& ${RUMPMAKE} MAKEOBJDIR=baremetal dependall )
+endif
+
 rumprun.o: ${OBJS}
 	${CC} -nostdlib ${CFLAGS} -Wl,-r ${OBJS_BMK} -o $@
 
-commonlibs: ${BASEDIR}/baremetal/librumprun_base.a ${COREDIR}/baremetal/libbmk_core.a ${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a
+COMMON_LIBS:=	${BASEDIR}/baremetal/librumprun_base.a \
+	${COREDIR}/baremetal/libbmk_core.a \
+	${RUMPUSERDIR}/baremetal/libbmk_rumpuser.a
+
+ifeq ($(HASACPI), y)
+COMMON_LIBS+= ${ACPICADIR}/baremetal/librumprun_acpica.a
+endif
+
+commonlibs: $(COMMON_LIBS)
 
 buildtest: ../../tests/hello/hello.c rumprun.o commonlibs app-tools
 	$(APP_TOOLS_CC) -g -o $@ $< -lrumprun_tester
@@ -134,6 +159,9 @@ clean: app-tools_clean
 	( cd ${BASEDIR} && ${RUMPMAKE} MAKEOBJDIR=baremetal cleandir )
 	( cd ${COREDIR} && ${RUMPMAKE} MAKEOBJDIR=baremetal cleandir )
 	( cd ${RUMPUSERDIR} && ${RUMPMAKE} MAKEOBJDIR=baremetal cleandir )
+ifeq ($(HASACPI), y)
+	( cd ${ACPICADIR} && ${RUMPMAKE} MAKEOBJDIR=baremetal cleandir )
+endif
 
 cleandir: clean
 

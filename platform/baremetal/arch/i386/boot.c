@@ -29,6 +29,9 @@
 
 #include <bmk-core/core.h>
 #include <bmk-core/sched.h>
+#ifdef RUMP_ACPI
+#include <rumprun-acpica/acpi.h>
+#endif
 
 #include "kvm.h"
 #include "tsc.h"
@@ -38,7 +41,9 @@ unsigned long   bmk_cpu_frequency = 0;  /* for export via kernel.c */
 void
 bmk_cpu_boot(struct multiboot_info *mbi)
 {
-
+#ifdef RUMP_ACPI
+	bmk_acpi_init();
+#endif
 	bmk_cpu_init();
 	bmk_sched_init();
 	bmk_multiboot(mbi);

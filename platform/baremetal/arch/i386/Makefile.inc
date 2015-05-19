@@ -3,6 +3,10 @@ OBJS_BMK+=	arch/i386/vgacons.o
 OBJS_BMK+=	arch/i386/timer.o arch/i386/identcpu.o arch/i386/tsc.o \
 	arch/i386/pvclock.o arch/i386/kvm.o
 
+ifeq ($(HASACPI), y)
+OBJS_BMK+=	arch/i386/acpi_machdep.o
+endif
+
 LDSCRIPT=	arch/i386/kern.ldscript
 
 CFLAGS+=	-mno-sse -mno-mmx -march=i686
