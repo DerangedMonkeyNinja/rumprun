@@ -41,12 +41,13 @@ unsigned long   bmk_cpu_frequency = 0;  /* for export via kernel.c */
 void
 bmk_cpu_boot(struct multiboot_info *mbi)
 {
-#ifdef RUMP_ACPI
-	bmk_acpi_init();
-#endif
 	bmk_cpu_init();
 	bmk_sched_init();
 	bmk_multiboot(mbi);
+
+#ifdef RUMP_ACPI
+	bmk_acpi_init();
+#endif
 
 	if (bmk_is_kvm_guest()) {
 		bmk_kvm_init();

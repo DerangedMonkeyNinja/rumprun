@@ -2,7 +2,7 @@
 
 RUMPTOP=	${TOPRUMP}
 
-LIB=	rumprun_acpica
+LIB=	rumprun_acpi
 
 CPPFLAGS+=	\
 	-I${RUMPTOP}/../external/bsd/acpica/dist/include \
@@ -192,26 +192,26 @@ SRCS_ACPICA_CORE := \
 	utilities/utxfinit.c
 
 SRCS_ACPICA_GLUE := \
-	OsdEnvironment.c \
-	OsdHardware.c \
-	OsdInterrupt.c \
-	OsdMemory.c \
-	OsdMisc.c \
-	OsdSchedule.c \
-	OsdStream.c \
-	OsdSynch.c
+	acpica/OsdEnvironment.c \
+	acpica/OsdHardware.c \
+	acpica/OsdInterrupt.c \
+	acpica/OsdMemory.c \
+	acpica/OsdMisc.c \
+	acpica/OsdSchedule.c \
+	acpica/OsdStream.c \
+	acpica/OsdSynch.c
 
 SRCS := acpi.c $(SRCS_ACPICA_CORE) $(SRCS_ACPICA_GLUE)
 
 #OBJS := $(notdir $(SRCS))
 
-SUBDIRS := common compiler debugger disassembler dispatcher \
+SUBDIRS := acpica common compiler debugger disassembler dispatcher \
 	events executer hardware namespace parser resources tables \
 	utilities
 beforedepend:
 	@mkdir -p $(SUBDIRS)
 
 cleandir:
-	@rmdir $(SUBDIRS)
+	@rm -rf $(SUBDIRS)
 
 .include <bsd.lib.mk>
