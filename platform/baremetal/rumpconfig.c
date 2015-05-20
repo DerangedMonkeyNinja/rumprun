@@ -30,10 +30,13 @@
  */
 
 #include <sys/param.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 
 #include <ufs/ufs/ufsmount.h>
 #include <isofs/cd9660/cd9660_mount.h>
+
+#include <dev/vndvar.h>
 
 #include <assert.h>
 #include <err.h>
@@ -41,6 +44,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <rump/rump.h>
 #include <rump/netconfig.h>
@@ -79,6 +83,14 @@
 	}								\
   } while (/*CONSTCOND*/0)
 
+static char *
+token2cstr(jsmntok_t *t, char *data)
+{
+
+	*(T_STR(t, data) + T_SIZE(t)) = '\0';
+	return T_STR(t, data);
+}
+
 int rumprun_cmdline_argc;
 char **rumprun_cmdline_argv;
 
@@ -102,49 +114,81 @@ makeargv(char *argvstr)
 }
 
 static int
-handle_cmdline(jsmntok_t *t, int left, const char *data)
+handle_cmdline(jsmntok_t *t, int left, char *data)
 {
-	char *argvstr;
-	size_t argvstrlen;
 
 	T_CHECKTYPE(t, data, JSMN_STRING, __func__);
 
-	/* allocate memory for argv element storage */
-	argvstrlen = T_SIZE(t)+1;
-	argvstr = malloc(argvstrlen);
-	if (argvstr == NULL)
-		errx(1, "could not allocate argv storage");
-
-	T_STRCPY(argvstr, argvstrlen, t, data);
-	makeargv(argvstr);
+	makeargv(token2cstr(t, data));
 
 	return 1;
 }
 
 static int
-handle_env(jsmntok_t *t, int left, const char *data)
+handle_env(jsmntok_t *t, int left, char *data)
 {
-	char *envstr;
 
 	T_CHECKTYPE(t, data, JSMN_STRING, __func__);
 
-	envstr = malloc(T_SIZE(t)+1);
-	if (envstr == NULL)
-		err(1, "allocate env string");
-	T_STRCPY(envstr, T_SIZE(t)+1, t, data);
-	if (putenv(envstr) == -1)
+	if (putenv(token2cstr(t, data)) == -1)
 		err(1, "putenv");
 
 	return 1;
 }
 
-static int
-handle_net(jsmntok_t *t, int left, const char *data)
+static void
+config_ipv4(const char *ifname, const char *method,
+	const char *addr, const char *mask, const char *gw)
 {
-	char ifname[32], type[32], method[32];
-	char addr[32], mask[32], gw[32];
+	int rv;
+
+	if (strcmp(method, "dhcp") == 0) {
+		if ((rv = rump_pub_netconfig_dhcp_ipv4_oneshot(ifname)) != 0)
+			errx(1, "configuring dhcp for %s failed: %d",
+			    ifname, rv);
+	} else {
+		if (strcmp(method, "static") != 0) {
+			errx(1, "method \"static\" or \"dhcp\" expected, "
+			    "got \"%s\"", method);
+		}
+
+		if (!addr || !mask) {
+			errx(1, "static net cfg missing addr or mask");
+		}
+
+		if ((rv = rump_pub_netconfig_ipv4_ifaddr_cidr(ifname,
+		    addr, atoi(mask))) != 0) {
+			errx(1, "ifconfig \"%s\" for \"%s/%s\" failed",
+			    ifname, addr, mask);
+		}
+		if (gw && (rv = rump_pub_netconfig_ipv4_gw(gw)) != 0) {
+			errx(1, "gw \"%s\" addition failed", gw);
+		}
+	}
+}
+
+static void
+config_ipv6(const char *ifname, const char *method,
+	const char *addr, const char *mask, const char *gw)
+{
+	int rv;
+
+	if (strcmp(method, "auto") == 0) {
+		if ((rv = rump_pub_netconfig_auto_ipv6(ifname)) != 0) {
+			errx(1, "ipv6 autoconfig failed");
+		}
+	} else {
+		errx(1, "unsupported ipv6 config method \"%s\"", method);
+	}
+}
+
+static int
+handle_net(jsmntok_t *t, int left, char *data)
+{
+	const char *ifname, *type, *method;
+	const char *addr, *mask, *gw;
 	jsmntok_t *key, *value;
-	int rv, i, objsize;
+	int i, objsize;
 	static int configured;
 
 	T_CHECKTYPE(t, data, JSMN_OBJECT, __func__);
@@ -160,10 +204,11 @@ handle_net(jsmntok_t *t, int left, const char *data)
 		errx(1, "currently only 1 \"net\" configuration is supported");
 	}
 
-	ifname[0] = type[0] = method[0] = '\0';
-	addr[0] = mask[0] = gw[0] = '\0';
+	ifname = type = method = NULL;
+	addr = mask = gw = NULL;
 
 	for (i = 0; i < objsize; i++, t+=2) {
+		const char *valuestr;
 		key = t;
 		value = t+1;
 
@@ -178,65 +223,63 @@ handle_net(jsmntok_t *t, int left, const char *data)
 		 * want a richer structure, but let's be happy to not
 		 * diverge for now.
 		 */
+		valuestr = token2cstr(value, data);
 		if (T_STREQ(key, data, "if")) {
-			T_STRCPY(ifname, sizeof(ifname), value, data);
+			ifname = valuestr;
 		} else if (T_STREQ(key, data, "type")) {
-			T_STRCPY(type, sizeof(type), value, data);
+			type = valuestr;
 		} else if (T_STREQ(key, data, "method")) {
-			T_STRCPY(method, sizeof(method), value, data);
+			method = valuestr;
 		} else if (T_STREQ(key, data, "addr")) {
-			T_STRCPY(addr, sizeof(addr), value, data);
+			addr = valuestr;
 		} else if (T_STREQ(key, data, "mask")) {
 			/* XXX: we could also pass mask as a number ... */
-			T_STRCPY(mask, sizeof(mask), value, data);
+			mask = valuestr;
 		} else if (T_STREQ(key, data, "gw")) {
-			T_STRCPY(gw, sizeof(gw), value, data);
+			gw = valuestr;
 		} else {
-			errx(1, "unexpected key \"%.*s\" in \"%s\", ignoring",
+			errx(1, "unexpected key \"%.*s\" in \"%s\"",
 			    T_PRINTFSTAR(key, data), __func__);
 		}
 	}
 
-	if (!ifname[0] || !type[0] || !method[0]) {
+	if (!ifname || !type || !method) {
 		errx(1, "net cfg missing vital data, not configuring");
 	}
 
-	if (strcmp(type, "inet") != 0) {
-		errx(1, "only ipv4 is supported currently, got: \"%s\"", type);
-	}
-
-	if (strcmp(method, "dhcp") == 0) {
-		if ((rv = rump_pub_netconfig_dhcp_ipv4_oneshot(ifname)) != 0)
-			errx(1, "configuring dhcp for %s failed: %d",
-			    ifname, rv);
+	if (strcmp(type, "inet") == 0) {
+		config_ipv4(ifname, method, addr, mask, gw);
+	} else if (strcmp(type, "inet6") == 0) {
+		config_ipv6(ifname, method, addr, mask, gw);
 	} else {
-		if (strcmp(method, "static") != 0) {
-			errx(1, "method \"static\" or \"dhcp\" expected, "
-			    "got \"%s\"", method);
-		}
-
-		if (!addr[0] || !mask[0]) {
-			errx(1, "static net cfg missing addr or mask");
-		}
-
-		if ((rv = rump_pub_netconfig_ipv4_ifaddr_cidr(ifname,
-		    addr, atoi(mask))) != 0) {
-			errx(1, "ifconfig \"%s\" for \"%s/%s\" failed",
-			    ifname, addr, mask);
-		}
-		if (gw[0] && (rv = rump_pub_netconfig_ipv4_gw(gw)) != 0) {
-			errx(1, "gw \"%s\" addition failed", gw);
-		}
+		errx(1, "network type \"%s\" not supported", type);
 	}
 
 	return 2*objsize + 1;
 }
 
-static int
-handle_blk(jsmntok_t *t, int left, const char *data)
+static void
+configvnd(const char *path)
 {
-	char devname[64], fstype[16];
-	char *mp;
+	struct vnd_ioctl vndio;
+	int fd;
+
+	memset(&vndio, 0, sizeof(vndio));
+	vndio.vnd_file = __UNCONST(path);
+	vndio.vnd_flags = VNDIOF_READONLY;
+
+	fd = open("/dev/rvnd0d", O_RDWR);
+	if (fd == -1)
+		err(1, "cannot open /dev/vnd");
+
+	if (ioctl(fd, VNDIOCSET, &vndio) == -1)
+		err(1, "vndset failed");
+}
+
+static int
+handle_blk(jsmntok_t *t, int left, char *data)
+{
+	const char *source, *path, *fstype, *mp;
 	jsmntok_t *key, *value;
 	int i, objsize;
 
@@ -249,10 +292,10 @@ handle_blk(jsmntok_t *t, int left, const char *data)
 	}
 	t++;
 
-	fstype[0] = devname[0] = '\0';
-	mp = NULL;
+	fstype = source = path = mp = NULL;
 
 	for (i = 0; i < objsize; i++, t+=2) {
+		const char *valuestr;
 		key = t;
 		value = t+1;
 
@@ -262,26 +305,32 @@ handle_blk(jsmntok_t *t, int left, const char *data)
 		T_CHECKTYPE(value, data, JSMN_STRING, __func__);
 		T_CHECKSIZE(value, data, 0, __func__);
 
-		if (T_STREQ(key, data, "dev")) {
-			T_STRCPY(devname, sizeof(devname), value, data);
+		valuestr = token2cstr(value, data);
+		if (T_STREQ(key, data, "source")) {
+			source = valuestr;
+		} else if (T_STREQ(key, data, "path")) {
+			path = valuestr;
 		} else if (T_STREQ(key, data, "fstype")) {
-			T_STRCPY(fstype, sizeof(fstype), value, data);
+			fstype = valuestr;
 		} else if (T_STREQ(key, data, "mountpoint")) {
-			size_t mplen = T_SIZE(t);
-
-			mp = malloc(mplen+1);
-			if (mp == NULL)
-				errx(1, "failed to allocate mountpoint path");
-
-			T_STRCPY(mp, mplen+1, value, data);
+			mp = valuestr;
 		} else {
 			errx(1, "unexpected key \"%.*s\" in \"%s\"",
 			    T_PRINTFSTAR(key, data), __func__);
 		}
 	}
 
-	if (!devname[0] || !fstype[0]) {
+	if (!source || !path || !fstype) {
 		errx(1, "blk cfg missing vital data");
+	}
+
+	if (strcmp(source, "dev") == 0) {
+		/* nothing to do here */
+	} else if (strcmp(source, "vnd") == 0) {
+		configvnd(path);
+		path = "/dev/vnd0d"; /* XXX */
+	} else {
+		errx(1, "unsupported blk source \"%s\"", source);
 	}
 
 	/* we only need to do something only if a mountpoint is specified */
@@ -291,14 +340,15 @@ handle_blk(jsmntok_t *t, int left, const char *data)
 			errx(1, "creating mountpoint \"%s\" failed", mp);
 
 		if (strcmp(fstype, "ffs") == 0) {
-			struct ufs_args mntargs = { .fspec = devname };
+			struct ufs_args mntargs =
+			    { .fspec = __UNCONST(path) };
 
 			if (mount(MOUNT_FFS, mp, 0,
 			    &mntargs, sizeof(mntargs)) == -1) {
 				errx(1, "rumprun_config: mount_ffs failed");
 			}
 		} else if(strcmp(fstype, "cd9660") == 0) {
-			struct iso_args mntargs = { .fspec = devname };
+			struct iso_args mntargs = { .fspec = path };
 
 			if (mount(MOUNT_CD9660, mp, MNT_RDONLY,
 			    &mntargs, sizeof(mntargs)) == -1) {
@@ -307,8 +357,6 @@ handle_blk(jsmntok_t *t, int left, const char *data)
 		} else {
 			errx(1, "unknown fstype \"%s\"", fstype);
 		}
-
-		free(mp);
 	}
 
 	return 2*objsize + 1;
@@ -344,7 +392,7 @@ strcpy_without_escaped_quotes(char *dst, const char *src, size_t len)
 
 struct {
 	const char *name;
-	int (*handler)(jsmntok_t *, int, const char *);
+	int (*handler)(jsmntok_t *, int, char *);
 } parsers[] = {
 	{ "cmdline", handle_cmdline },
 	{ "env", handle_env },
@@ -352,18 +400,84 @@ struct {
 	{ "net", handle_net },
 };
 
+/* don't believe we can have a >64k config */
+#define CFGMAXSIZE (64*1024)
+static char *
+getcmdlinefromroot(const char *cfgname)
+{
+	const char *tryroot[] = {
+		"/dev/ld0a",
+		"/dev/sd0a",
+	};
+	struct iso_args mntargs;
+	struct stat sb;
+	int fd, i;
+	char *p;
+
+	if (mkdir("/rootfs", 0777) == -1)
+		err(1, "mkdir /rootfs failed");
+
+	/*
+	 * XXX: should not be hardcoded to cd9660.  but it is for now.
+	 * Maybe use mountroot() here somehow?
+	 */
+	for (i = 0; i < __arraycount(tryroot); i++) {
+		memset(&mntargs, 0, sizeof(mntargs));
+		mntargs.fspec = tryroot[i];
+		if (mount(MOUNT_CD9660, "/rootfs", MNT_RDONLY,
+		    &mntargs, sizeof(mntargs)) == 0) {
+			break;
+		}
+	}
+	if (i == __arraycount(tryroot))
+		errx(1, "failed to mount rootfs from image");
+
+	while (*cfgname == '/')
+		cfgname++;
+	if (chdir("/rootfs") == -1)
+		err(1, "chdir rootfs");
+
+	if ((fd = open(cfgname, O_RDONLY)) == -1)
+		err(1, "open %s", cfgname);
+	if (stat(cfgname, &sb) == -1)
+		err(1, "stat %s", cfgname);
+
+	if (sb.st_size > CFGMAXSIZE)
+		errx(1, "unbelievable cfg file size, increase CFGMAXSIZE");
+	if ((p = malloc(sb.st_size+1)) == NULL)
+		err(1, "cfgname storage");
+
+	if (read(fd, p, sb.st_size) != sb.st_size)
+		err(1, "read cfgfile");
+	close(fd);
+
+	p[sb.st_size] = '\0';
+	return p;
+}
+
+#define ROOTCFG "ROOTFSCFG="
 void
-_rumprun_config(const char *orig_cmdline)
+_rumprun_config(char *cmdline)
 {
 	jsmn_parser p;
 	jsmntok_t *tokens = NULL;
 	jsmntok_t *t;
-	size_t cmdline_len = strlen(orig_cmdline);
+
+	char buffer[2048];
+	size_t cmdline_len = strlen(cmdline);
+	const size_t rootcfglen = sizeof(ROOTCFG)-1;
 	int i, ntok;
 
-  char buffer[2048];
-  char *cmdline = &buffer[0];
-  strcpy_without_escaped_quotes(cmdline, orig_cmdline, cmdline_len);
+	/* is the config file on rootfs?  if so, mount & dig it out */
+	if (strncmp(cmdline, ROOTCFG, rootcfglen) == 0) {
+		cmdline = getcmdlinefromroot(cmdline + rootcfglen);
+		if (cmdline == NULL)
+			errx(1, "could not get cfg from rootfs");
+	} else {
+		/* Make sure the original cmdline is sane */
+		strcpy_without_escaped_quotes(buffer, cmdline, strlen(cmdline));
+		cmdline = buffer;
+	}
 
 	while (*cmdline != '{') {
 		if (*cmdline == '\0') {
@@ -374,11 +488,12 @@ _rumprun_config(const char *orig_cmdline)
 		cmdline++;
 	}
 
+	cmdline_len = strlen(cmdline);
 	jsmn_init(&p);
 	ntok = jsmn_parse(&p, cmdline, cmdline_len, NULL, 0);
 
 	if (ntok <= 0) {
-		errx(1, "command line json parse failed");
+		errx(1, "json parse failed 1");
 	}
 
 	tokens = malloc(ntok * sizeof(*t));
@@ -388,7 +503,7 @@ _rumprun_config(const char *orig_cmdline)
 
 	jsmn_init(&p);
 	if ((ntok = jsmn_parse(&p, cmdline, cmdline_len, tokens, ntok)) < 1) {
-		errx(1, "command line json parse failed");
+		errx(1, "json parse failed 2");
 	}
 
 	T_CHECKTYPE(tokens, cmdline, JSMN_OBJECT, __func__);
