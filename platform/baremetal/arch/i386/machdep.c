@@ -61,6 +61,8 @@ void bmk_cpu_insr(void);
 void bmk_cpu_isr_clock(void);
 void bmk_cpu_isr_10(void);
 void bmk_cpu_isr_11(void);
+void bmk_cpu_isr_14(void);
+void bmk_cpu_isr_15(void);
 
 /* clock routines */
 void bmk_init_tsc_tc(void);
@@ -224,16 +226,16 @@ bmk_cpu_intr_init(int intr)
 	if (intr < 8)
 		return BMK_EGENERIC;
 
+#define FILLGATE(n) case n: fillgate(&idt[32+n], bmk_cpu_isr_##n); break;
 	switch (intr) {
-	case 10:
-		fillgate(&idt[32+10], bmk_cpu_isr_10);
-		break;
-	case 11:
-		fillgate(&idt[32+11], bmk_cpu_isr_11);
-		break;
+		FILLGATE(10);
+		FILLGATE(11);
+		FILLGATE(14);
+		FILLGATE(15);
 	default:
 		return BMK_EGENERIC;
 	}
+#undef FILLGATE
 
 	/* unmask interrupt in PIC */
 	pic2mask &= ~(1<<(intr-8));

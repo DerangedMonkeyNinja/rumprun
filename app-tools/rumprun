@@ -1,6 +1,7 @@
 #!/bin/sh
 #
 # Copyright (c) 2014 Martin Lucina.  All Rights Reserved.
+# Copyright (c) 2015 Antti Kantee.  All Rights Reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
@@ -28,65 +29,178 @@
 # rumprun: "driver" script for running rumprun application stacks
 #
 
-exec 3>&1 1>&2
-echo
-echo !!!
-echo !!! NOTE: rumprun is experimental and usage may change in the future
-echo !!!
-echo
-exec 1>&3 3>&-
+# default values
+MEM_DEFAULT=64
 
-err()
+if [ "${RUMPRUN_WARNING_STFU}" != 'please' ]; then
+	exec 3>&1 1>&2
+	echo
+	echo !!!
+	echo !!! NOTE: rumprun is experimental and may change in the future
+	echo !!!
+	echo
+	exec 1>&3 3>&-
+fi
+
+die ()
 {
+
 	echo rumprun: error: "$@" 1>&2
 	exit 1
 }
 
-myoptstr='n:b:e:pidD:N:M:S'
+scriptopts='DhSt:T:'
+guestopts='b:dD:e:iI:M:n:N:pW:'
 
-usage()
+# script option default values
+DUMPCMD=
+CANSUDO=false
+PRESERVETMPDIR=false
+
+usage ()
 {
+
 	cat <<EOM
-usage: rumprun PLATFORM [ -ipd ] [ -D PORT ] [ -N NAME ] [ -M MEM ] [ -b BLKSPEC ] [ -n NETSPEC ] [ -e VAR[=VALUE] ] [ -- ] APP [ args ]
-    PLATFORM is the rumprun runtime platform to use. currently: (xen|qemu)
-    APP is the rumprun application to start
-    args will be passed to the application command line
-    -N NAME sets the domain's name to NAME, default is rumprun-APP
-    -M MEM sets the domain's memory to MEM, default is 16
-    -b BLKSPEC configures a block device as hostpath,mountpoint
-    -n NETSPEC configures a network interface, using one of:
-       inet,dhcp - IPv4 with DHCP
-       inet,static,ADDR/MASK[,GATEWAY] - IPv4 with static IP
-       inet6,auto - IPv6 with stateless autoconfiguration
-    -e set guest environment VAR to VALUE
-    -i attaches to domain console on startup
-    -p creates the domain but leaves it paused
-    -d destroys the domain on poweroff
-    -D PORT attaches a GDB server on PORT to the domain
-    
-    When run without -i the local domain id is printed to standard output
+usage: rumprun [script args] PLATFORM [guest args] APP [ -- ] [app args]
+
+PLATFORM is the rumprun runtime platform to use
+    iso  : bake app and config into a bootable iso image
+    kvm  : baremetal guest via qemu -enable-kvm
+    qemu : baremetal guest via qemu -no-kvm
+    xen  : xen guest via xl(1)
+
+APP is the binary to rumprun.  app args are processed by APP.
+
+script args are:
+	[-h] [-DS] [-t tmpdir] [-T tmpdir]
+
+   -h display this message
+
+   -D dump backend commands instead of running them
+   -S execute sudo where potentially necessary
+   -t use tmpdir as dir for temp files (default: /tmp/rumprun.XXXXXXXX)
+   -T same as -t, except do not remove temporary directory
+
+guest args are:
+	[-dip] [-b blkspec] [-D port] [-e VAR[=VALUE]] [-I ifopts] [-M mem]
+	[-N name] [-n netspec]
+
+   -b configures a block device.  The format of "blkspec" is:
+       hostpath[,mountpoint] where:
+	hostpath   = image that is passed to the guest as a block device
+	mountpoint = if "hostpath" is a file system image, mountpoint on guest
+   -D attaches a gdb server on port to the guest
+   -d destroys the guest on poweroff
+   -e set environment VAR to VALUE
+   -I create guest network interface and attach the user-specified
+      iftag to it.  the format is:
+	iftag[,backendopts]
+	e.g. -I 'qnet0,-net tap=/dev/tap0'
+	(NOTE: currently available only for kvm/qemu)
+   -i attaches to guest console on startup
+   -M set the guest's memory to mem megabytes, default is ${MEM_DEFAULT}
+   -N set the guest's name to name, default is rumprun-APP
+   -n configures a network interface, where netspec is one of:
+	inet,dhcp - IPv4 with DHCP
+	inet,static,addr/mask[,gateway] - IPv4 with static IP
+	inet6,auto - IPv6 with stateless autoconfiguration
+   -p creates the guest but leaves it paused
+   -W configure network interface new style
+	iftag,type,method[,params]
+	e.g. -W qnet0,inet,static,1.2.3.4/24
+	(NOTE: currently available only for kvm/qemu)
+
 EOM
 	exit 1
 }
 
+nuketmpdir ()
+{
+
+	[ -z "${TMPDIR}" ] && return
+	${PRESERVETMPDIR} && return
+
+	realtmpdir="${TMPDIR}"
+	TMPDIR=''
+	rm -rf "${realtmpdir}"
+}
+
+setuptmpdir ()
+{
+
+	if [ -z "${TMPDIR}" ]; then
+		TMPDIR=$(mktemp -d /tmp/rumprun.XXXXXXXX)
+	else
+		[ ! -d "${TMPDIR}" ] || die ${TMPDIR} already exists
+		mkdir -p "${TMPDIR}" || die could not create ${TMPDIR}
+		chmod 700 "${TMPDIR}" \
+		    || { rm -rf "${TMPDIR}" ; die could not chmod ${TMPDIR}; }
+	fi
+	trap nuketmpdir 0 INT TERM
+}
+
 store_netspec=usage
+store_blkspec=usage
+
 nindex=0
 bindex=0
 
-json_append()
+createif_qemu ()
 {
+	local iftag
+	local qemuargs
 
-	json="${json} $*"
+	iftag="${1%%,*}"
+	qemuargs="${1#*,}"
+
+	opt_netif="${opt_netif} -net nic,model=virtio ${qemuargs}"
+	eval ${iftag}2ifname=vioif${nindex}
+	nindex=$(expr $nindex + 1)
 }
 
-json_finalize_block()
+createif_iso ()
+{
+	local iftag
+
+	iftag="${1%%,*}"
+
+	eval ${iftag}2ifname=vioif${nindex}
+	nindex=$(expr $nindex + 1)
+}
+
+json_depth=0
+json_indent ()
 {
 
-	json_append '},'
+	for x in $(seq ${json_depth}); do
+		printf '\t' >> ${TMPDIR}/json.cfg
+	done
+}
+
+json_append_ln ()
+{
+
+	json_indent
+	echo "$*, " >> ${TMPDIR}/json.cfg
+}
+
+json_open_block ()
+{
+
+	json_append_ln "${1:+\"$1\" : }" {
+	json_depth=$((${json_depth}+1))
+}
+
+json_finalize_block ()
+{
+
+	[ ${json_depth} -ne 0 ] || die internal json error
+	json_depth=$((${json_depth}-1))
+	json_append_ln }
 }
 
 # Detect the filesystem type of the image at $1.
-detect_fstype()
+detect_fstype ()
 {
 	eval $(blkid -o export $1)
 	if [ $? -ne 0 ]; then
@@ -108,7 +222,7 @@ detect_fstype()
 	esac
 }
 
-xen_store_netspec()
+xen_store_netspec ()
 {
 
 	echo net/${nindex}/type ${iftype} >>${xenstore}
@@ -122,34 +236,32 @@ xen_store_netspec()
 	fi
 }
 
-json_store_netspec()
+json_store_netspec ()
 {
 
-	json_append '"net" : {'
-
-	# XXX: should not generate the interface here
-	opt_netif="${opt_netif} -net nic,model=virtio -net user"
+	json_open_block net
 
 	# XXX: should not assume vioif or -net user
-	json_append	'"if":		"'vioif${nindex}'",'
-
-	json_append	'"type":	"'${iftype}'",'
-	json_append	'"method":	"'${ifmethod}'",'
+	json_append_ln	'"if":		"'$(eval echo \${${iftag}2ifname})'"'
+	json_append_ln	'"type":	"'${iftype}'"'
+	json_append_ln	'"method":	"'${ifmethod}'"'
 
 	[ -n "${ifaddr}" ] || { json_finalize_block ; return ; }
 
-	json_append	'"addr":	"'${ifaddr}'",'
-	json_append	'"mask":	"'${ifmask}'",'
+	json_append_ln	'"addr":	"'${ifaddr}'"'
+	json_append_ln	'"mask":	"'${ifmask}'"'
 
 	[ -n "${ifgw}" ] || { json_finalize_block ; return ; }
 
-	json_append	'"gw":		"'${ifgw}'",'
+	json_append_ln	'"gw":		"'${ifgw}'"'
 
 	json_finalize_block
 }
 
-parse_netspec()
+parse_netspec ()
 {
+	iftag=$1
+	shift
 
 	IFS=,
 	set -- $1
@@ -178,12 +290,18 @@ parse_netspec()
 	esac
 
 	${store_netspec}
-	nindex=$(expr $nindex + 1)
 
 	return 0
 }
 
-xen_store_blkspec()
+parse_newnetspec ()
+{
+
+	iftag=${1%%,*}
+	parse_netspec ${iftag} "${1#*,}"
+}
+
+xen_store_blkspec ()
 {
 
 	vdev=hd$(echo ${bindex} | tr '[0-9]' '[a-j]')
@@ -196,7 +314,7 @@ xen_store_blkspec()
 	fi
 }
 
-json_store_blkspec()
+json_store_qemu_blkspec ()
 {
 
 	# XXX: should not generate the interface here
@@ -205,17 +323,42 @@ json_store_blkspec()
 	# if the image does not need to be mounted, we're done
 	[ -n "${mountpoint}" ] || return
 
-	json_append '"blk" : {'
+	json_open_block blk
 
 	# XXX: should not assume ld (virtio)
-	json_append	'"dev":		"'/dev/ld${bindex}a'",'
-	json_append	'"fstype":	"'${fstype}'",'
-	json_append	'"mountpoint":	"'${mountpoint}'",'
+	json_append_ln	'"source":	"'dev'"'
+	json_append_ln	'"path":	"'/dev/ld${bindex}a'"'
+	json_append_ln	'"fstype":	"'${fstype}'"'
+	json_append_ln	'"mountpoint":	"'${mountpoint}'"'
 
 	json_finalize_block
 }
 
-parse_blkspec()
+json_store_iso_blkspec ()
+{
+
+	mkdir -p "${ISODIR}/images"
+
+	# XXX: might have accidental clashes due to images from
+	# many source subdirectories
+	[ ! -f "${ISODIR}/images/$(basename ${image})" ] \
+	    || die image \"${image}\" already exists in destdir
+	cp ${image} "${ISODIR}/images/"
+
+	# well, this is a bit questionable, but ...
+	[ -n "${mountpoint}" ] || return
+
+	json_open_block blk
+
+	json_append_ln	'"source":	"'vnd'"'
+	json_append_ln	'"path":	"'images/$(basename ${image})'"'
+	json_append_ln	'"fstype":	"'${fstype}'"'
+	json_append_ln	'"mountpoint":	"'${mountpoint}'"'
+
+	json_finalize_block
+}
+
+parse_blkspec ()
 {
 	spec=$1
 
@@ -223,11 +366,11 @@ parse_blkspec()
 	image=$(readlink -f ${image})
 	mountpoint=$(echo ${spec} | sed -n 's/.*,\(.*\)/\1/p')
 	[ -n "$image" ] || usage
-	[ -f "$image" ] || err File $image does not exist
+	[ -f "$image" ] || die File $image does not exist
 
 	if [ -n "$mountpoint" ]; then
 		fstype=$(detect_fstype $image)
-		[ $? -ne 0 ] && err File $image: unknown fstype
+		[ $? -ne 0 ] && die File $image: unknown fstype
 	fi
 
 	${store_blkspec}
@@ -235,8 +378,11 @@ parse_blkspec()
 }
 
 # run_xen: Generate Xen configuration and run application stack.
-run_xen()
+run_xen ()
 {
+
+	[ -n "${DUMPCMD}" ] && die -D not supported for xen
+
 	# try to find gdbsx from common locations
 	unset gdbsx
 	for x in gdbsx /usr/lib/xen-4.4/bin/gdbsx ; do
@@ -249,8 +395,8 @@ run_xen()
 	store_blkspec=xen_store_blkspec
 	store_netspec=xen_store_netspec
 
-	conf=/tmp/xr.conf.$$
-	xenstore=/tmp/xr.store.$$
+	conf="${TMPDIR}/xr.conf"
+	xenstore="${TMPDIR}/xr.store"
 	>${conf}
 	>${xenstore}
 	OPTIND=1
@@ -259,17 +405,17 @@ run_xen()
 	opt_pause=
 	opt_interactive=
 	opt_destroy='on_poweroff="preserve"'
-	opt_mem=64
+	opt_mem=${MEM_DEFAULT}
 	opt_name=
 	opt_debug=
-	opt_cansudo=false
 	sudo=''
 
-	while getopts "${myoptstr}" opt; do
+	while getopts "${guestopts}" opt; do
 		case "$opt" in
 		# -n: NETSPEC
 		n)
-			parse_netspec "${OPTARG}" || usage
+			parse_netspec net${nindex} "${OPTARG}" || usage
+			nindex=$(expr $nindex + 1)
 			;;
 		# -b: BLKSPEC: hostpath,mountpoint
 		b)
@@ -313,12 +459,9 @@ run_xen()
 		# -D PORT: attach gdbsx to domain.
 		D)
 			if [ -z "${gdbsx}" ]; then
-				err "'gdbsx' is required for -D, please install it."
+				die "'gdbsx' is required for -D, please install it."
 			fi
 			opt_debug=${OPTARG}
-			;;
-		S)
-			opt_cansudo=true
 			;;
 		*)
 			usage
@@ -338,7 +481,7 @@ run_xen()
 	app=$(readlink -f $1)
 	shift
 	# Generate xl configuration file.
-	cat <<EOM >/tmp/xr.conf.$$
+	cat <<EOM >"${TMPDIR}/xr.conf"
 kernel="${app}"
 name="${name}"
 vcpus=1
@@ -349,22 +492,23 @@ extra="$@"
 ${conf_vif}
 ${conf_disk}
 EOM
-	if ${opt_cansudo} && [ $(id -u) -ne 0 ]; then
+	if ${CANSUDO} && [ $(id -u) -ne 0 ]; then
 		sudo='sudo'
 	fi
 
 	# Create the domain and leave it paused so that we can get its domid.
 	if ! ${sudo} xl create -p ${conf} >/dev/null; then
-		err xl create failed
+		die xl create failed
 	fi
-	rm ${conf}
 	domid=$(${sudo} xl domid ${name})
 	# Write provisioning information for domain to xenstore.
 	prefix=/local/domain/${domid}/rumprun
 	cat ${xenstore} | while read key value; do
 		${sudo} xenstore-write "${prefix}/${key}" "${value}"
 	done
-	rm ${xenstore}
+
+	nuketmpdir
+
 	# Attach debugger if requested.
 	if [ -n "$opt_debug" ]; then
 		if objdump -f ${app} | grep -q elf64; then
@@ -383,10 +527,10 @@ EOM
 	fi
 }
 
-run_qemu()
+run_qemu ()
 {
 
-	store_blkspec=json_store_blkspec
+	store_blkspec=json_store_qemu_blkspec
 	store_netspec=json_store_netspec
 
 	opt_interactive=
@@ -394,45 +538,77 @@ run_qemu()
 	opt_debug=
 	opt_pause=
 	opt_netif=
-	json_append '{'
-	while getopts "${myoptstr}" opt; do
+	opt_mem=${MEM_DEFAULT}
+
+	json_open_block
+
+	variant=$1
+	shift
+	while getopts "${guestopts}" opt; do
 		case "$opt" in
 		b)
 			parse_blkspec "${OPTARG}" || usage
 			;;
-		e)
-			json_append "\"env\": \"${OPTARG}\","
-			;;
-		i)
-			opt_interactive=1
-			;;
-		n)
-			parse_netspec "${OPTARG}" || usage
-			;;
-		p)
-			opt_pause="-S"
+		d)
+			die -d not supported on qemu/kvm
 			;;
 		D)
 			opt_debug="-gdb tcp::${OPTARG}"
 			;;
-		S)
-			# ignored for now
+		e)
+			json_append_ln "\"env\": \"${OPTARG}\""
+			;;
+		i)
+			opt_interactive=1
+			;;
+		I)
+			createif_qemu "${OPTARG}" || usage
+			nindex=$(expr $nindex + 1)
+			;;
+		M)
+			opt_mem=${OPTARG}
+			;;
+		n)
+			netname=_net${nindex}
+			createif_qemu "${netname},-net user"
+			parse_netspec ${netname} "${OPTARG}" || usage
+			;;
+		N)
+			# ignored
+			opt_name=${OPTARG}
+			;;
+		p)
+			opt_pause="-S"
+			;;
+		W)
+			parse_newnetspec "${OPTARG}" || usage
 			;;
 		*)
-			err qemu platform like zathras: not so good
+			usage
 			;;
 		esac
 	done
 	shift $((${OPTIND}-1))
 
-	json_append "\"cmdline\": \""$@"\""
-	json_append '}'
-	json_coma="$(echo ${json} | sed 's/,/,,/g')"
+	if [ "${variant}" = "kvm" ]; then
+		opt_kvm=-enable-kvm
+	else
+		opt_kvm=-no-kvm
+	fi
+
+	json_append_ln "\"cmdline\": \""$@"\""
+	json_finalize_block
+
+	# internal check
+	[ ${json_depth} -eq 0 ] || die internal error, final depth ${json_depth}
+
+	json_coma="$(sed 's/,/,,/g' < "${TMPDIR}/json.cfg")"
 
 	[ -n "${opt_netif}" ] || opt_netif="-net none"
 
-	qemucmd="qemu-system-i386 ${opt_netif} -no-kvm ${opt_drivespec} \
-	    ${opt_debug} ${opt_pause} -kernel $1"
+	qemucmd="${DUMPCMD} qemu-system-i386 ${opt_netif} ${opt_kvm}	\
+	    ${opt_drivespec} ${opt_debug} ${opt_pause} -m ${opt_mem}	\
+	    -kernel $1"
 	if [ -n "$opt_interactive" ]; then
 		${qemucmd} -append "${json_coma}"
 	else
@@ -442,22 +618,140 @@ run_qemu()
 	fi
 }
 
+bake_iso ()
+{
+
+	type xorriso >/dev/null || die bake_iso needs xorriso
+	type grub-mkrescue >/dev/null || die bake_iso needs grub-mkrescue
+
+	store_blkspec=json_store_iso_blkspec
+	store_netspec=json_store_netspec
+
+	opt_interactive=
+	opt_drivespec=
+	opt_debug=
+	opt_pause=
+	opt_netif=
+	opt_mem=${MEM_DEFAULT}
+
+	blk_specified=false
+
+	ISODIR="${TMPDIR}/iso"
+	mkdir -p "${ISODIR}"
+
+	json_open_block
+
+	while getopts "${guestopts}" opt; do
+		case "$opt" in
+		b)
+			${blk_specified} \
+			    && die only one -b parameter supported.  will fix.
+			blk_specified=true
+			parse_blkspec "${OPTARG}" || usage
+			;;
+		d)
+			die -d not supported on iso
+			;;
+		D)
+			die -D not supported on iso
+			;;
+		e)
+			json_append_ln "\"env\": \"${OPTARG}\""
+			;;
+		i)
+			die -i not supported on iso
+			;;
+		I)
+			createif_iso "${OPTARG}" || usage
+			nindex=$(expr $nindex + 1)
+			;;
+		M)
+			die -M not supported on iso
+			;;
+		N)
+			opt_name=${OPTARG}
+			;;
+		p)
+			die -p not supported on iso
+			;;
+		W)
+			parse_newnetspec "${OPTARG}" || usage
+			;;
+		*)
+			usage
+			;;
+		esac
+	done
+	shift $((${OPTIND}-1))
+	bootimage=$1
+	: ${opt_name:=rumprun-$(echo ${bootimage} | tr / _).iso}
+
+	[ ! -f ${opt_name} ] || die target ${opt_name} already exists
+
+	json_append_ln "\"cmdline\": \""$@"\""
+	json_finalize_block
+	[ ${json_depth} -eq 0 ] || die internal error, final depth ${json_depth}
+
+	# create the iso directory structure
+	mkdir -p "${ISODIR}/boot/grub"
+	printf 'set timeout=0\n' > "${ISODIR}/boot/grub/grub.cfg"
+	printf 'menuentry "rumpkernel" {\n' >> "${ISODIR}/boot/grub/grub.cfg"
+	printf '\tmultiboot /boot/%s ROOTFSCFG=/json.cfg\n}\n' $(basename $1) \
+	    >> "${ISODIR}/boot/grub/grub.cfg"
+	cp ${bootimage} "${ISODIR}/boot"
+	cp "${TMPDIR}/json.cfg" "${ISODIR}"
+	grub-mkrescue "${ISODIR}" -o ${opt_name}
+}
+
 if [ $# -lt 2 ]; then
 	usage
 fi
 
+while getopts "${scriptopts}" opt; do
+	case "${opt}" in
+	D)
+		DUMPCMD=echo
+		;;
+	h)
+		usage
+		;;
+	S)
+		CANSUDO=true
+		;;
+	t)
+		TMPDIR="${OPTARG}"
+		;;
+	T)
+		PRESERVETMPDIR=true
+		TMPDIR="${OPTARG}"
+		;;
+	esac
+done
+shift $((${OPTIND}-1))
+OPTIND=1
+
 platform="$1"
 shift
+
+setuptmpdir
+
 case ${platform} in
 xen)
 	run_xen "$@"
 	;;
+iso)
+	bake_iso "$@"
+	;;
+kvm)
+	run_qemu kvm "$@"
+	;;
 qemu)
-	run_qemu "$@"
+	run_qemu qemu "$@"
 	;;
 *)
-	echo Invalid STACK \"${platform}\" 1>&2
+	echo Invalid platform \"${platform}\" 1>&2
 	usage
 	;;
 esac
+
 exit 0
