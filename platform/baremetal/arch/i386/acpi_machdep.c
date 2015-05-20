@@ -1,4 +1,4 @@
-
+#include <bmk/kernel.h>
 #include <bmk/machine/md.h>
 
 uint8_t  acpi_md_OsIn8(uint16_t port);
@@ -53,13 +53,15 @@ void acpi_md_OsOut32(uint16_t port, uint32_t value)
 	outl(port, value);
 }
 
-int acpi_md_OsInstallInterruptHandler(uint32_t InterruptNumber, uint32_t (*fn)(void *), void *Context, void **aih_ih)
+int acpi_md_OsInstallInterruptHandler(uint32_t InterruptNumber, uint32_t (*Handler)(void *), void *Context, void **aih_ih)
 {
-	return 0;
+	(void)aih_ih;
+	return bmk_isr_init((int (*)(void *))Handler, Context, InterruptNumber);
 }
 
 void acpi_md_OsRemoveInterruptHandler(void *aih_ih)
 {
+	/* XXX: not yet */
 }
 
 int acpi_md_OsMapMemory(uintptr_t PhysicalAddress, uint32_t Length, void **LogicalAddress)

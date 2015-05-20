@@ -1,3 +1,4 @@
+#include <bmk-core/platform.h>
 #include <bmk-core/printf.h>
 
 #include <acpica.h>
@@ -39,6 +40,21 @@ acpi_unmap_rsdt(ACPI_TABLE_HEADER *rsdt)
         AcpiOsUnmapMemory(rsdt, sizeof(ACPI_TABLE_HEADER));
 }
 
+static UINT32
+acpi_event_power_button_sleep(void *context)
+{
+	(void)AcpiEnterSleepStatePrep(ACPI_STATE_S5);
+
+	(void)AcpiDisableAllGpes();
+
+	(void)AcpiEnterSleepState(ACPI_STATE_S5);
+
+	bmk_platform_halt("ACPI shutdown failed; dropping the hammer...");
+
+	/* never reached */
+	return ACPI_INTERRUPT_HANDLED;
+}
+
 int bmk_acpi_init(void)
 {
 	ACPI_TABLE_HEADER *rsdt;
@@ -76,14 +92,23 @@ int bmk_acpi_init(void)
 	    rsdt->OemRevision, rsdt->AslCompilerId,
 	    rsdt->AslCompilerRevision);
 
-        acpi_unmap_rsdt(rsdt);
+	acpi_unmap_rsdt(rsdt);
 
-	rv = AcpiEnableSubsystem(~(ACPI_NO_HARDWARE_INIT|ACPI_NO_ACPI_ENABLE));
-
+	rv = AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION);
 	if (ACPI_FAILURE(rv)) {
 		bmk_printf("%s: failed to enable subsystem\n", __func__);
 		goto fail;
 	}
+
+	rv = AcpiInitializeObjects(ACPI_FULL_INITIALIZATION);
+	if (ACPI_FAILURE(rv)) {
+		bmk_printf("%s: failed to initialize objects\n", __func__);
+		goto fail;
+	}
+
+	AcpiClearEvent(ACPI_EVENT_POWER_BUTTON);
+	AcpiInstallFixedEventHandler(ACPI_EVENT_POWER_BUTTON,
+	    acpi_event_power_button_sleep, NULL);
 
 	return 1;
 
