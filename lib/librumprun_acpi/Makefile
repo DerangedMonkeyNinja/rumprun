@@ -10,8 +10,12 @@ CPPFLAGS+=	\
 	-I${RUMPTOP}/../ \
 	-I${.CURDIR}/../../include
 
-# The ACPICA code takes some shortcuts
-CFLAGS += -fno-strict-aliasing
+# Disallow type-punning in the acpica code base
+CFLAGS+=	-DACPI_MISALIGNMENT_NOT_SUPPORTED
+
+.if ${MACHINE} == "i386"
+CFLAGS+=	-DACPI_32BIT_PHYSICAL_ADDRESS
+.endif
 
 .PATH:	${RUMPTOP}/../external/bsd/acpica/dist
 

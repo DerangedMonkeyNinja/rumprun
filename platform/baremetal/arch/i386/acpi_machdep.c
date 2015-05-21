@@ -1,4 +1,5 @@
 #include <bmk/kernel.h>
+#include <bmk/types.h>
 #include <bmk/machine/md.h>
 
 uint8_t  acpi_md_OsIn8(uint16_t port);
@@ -78,7 +79,7 @@ void acpi_md_OsUnmapMemory(void *LogicalAddress, uint32_t Length)
 int acpi_md_OsGetPhysicalAddress(void *LogicalAddress,
     uintptr_t *PhysicalAddress)
 {
-	PhysicalAddress = LogicalAddress;
+	*PhysicalAddress = (uintptr_t)LogicalAddress;
 	return 0;
 }
 

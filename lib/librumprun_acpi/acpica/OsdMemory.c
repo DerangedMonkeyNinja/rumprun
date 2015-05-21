@@ -41,8 +41,6 @@
  * 6.2: Memory management.
  */
 
-#include <stdlib.h>
-
 #include <acpica.h>
 #include <rumprun-acpica/acpi_machdep.h>
 
