@@ -10,6 +10,9 @@ CPPFLAGS+=	\
 	-I${RUMPTOP}/../ \
 	-I${.CURDIR}/../../include
 
+# The ACPICA code takes some shortcuts
+CFLAGS += -fno-strict-aliasing
+
 .PATH:	${RUMPTOP}/../external/bsd/acpica/dist
 
 SRCS_ACPICA_DEBUG := \
