@@ -30,7 +30,7 @@
 #include <bmk-core/core.h>
 #include <bmk-core/sched.h>
 #ifdef RUMP_ACPI
-#include <rumprun-acpica/acpi.h>
+#include <rumprun-acpi/acpi.h>
 #endif
 
 #include "kvm.h"

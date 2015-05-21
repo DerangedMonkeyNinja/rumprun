@@ -41,8 +41,8 @@
  * 6.2: Memory management.
  */
 
-#include <acpica.h>
-#include <rumprun-acpica/acpi_machdep.h>
+#include <rumprun-acpi/acpica.h>
+#include <rumprun-acpi/acpi_machdep.h>
 
 /*
  * AcpiOsMapMemory:

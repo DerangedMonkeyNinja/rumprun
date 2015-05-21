@@ -41,7 +41,7 @@
  * 6.1: Environmental support.
  */
 
-#include <acpica.h>
+#include <rumprun-acpi/acpica.h>
 
 
 #define	_COMPONENT	ACPI_OS_SERVICES

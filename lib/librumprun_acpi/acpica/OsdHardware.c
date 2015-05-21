@@ -43,8 +43,8 @@
  * 6.9: Address Space Access: PCI Configuration Space
  */
 
-#include <acpica.h>
-#include <rumprun-acpica/acpi_machdep.h>
+#include <rumprun-acpi/acpica.h>
+#include <rumprun-acpi/acpi_machdep.h>
 
 /* XXX: from pci_user.h, which appears to just get copied where needed */
 int rumpcomp_pci_confread(unsigned, unsigned, unsigned, int, unsigned int *);

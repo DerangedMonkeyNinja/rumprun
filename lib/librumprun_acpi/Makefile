@@ -5,10 +5,9 @@ RUMPTOP=	${TOPRUMP}
 LIB=	rumprun_acpi
 
 CPPFLAGS+=	\
-	-I${RUMPTOP}/../external/bsd/acpica/dist/include \
 	-I${RUMPTOP}/../dev/acpi \
-	-I${RUMPTOP}/../ \
-	-I${.CURDIR}/../../include
+	-I${.CURDIR}/../../include \
+	-I${.CURDIR}/../../include/rumprun-acpi/acpica
 
 # Disallow type-punning in the acpica code base
 CFLAGS+=	-DACPI_MISALIGNMENT_NOT_SUPPORTED
@@ -208,7 +207,11 @@ SRCS_ACPICA_GLUE := \
 	acpica/OsdStream.c \
 	acpica/OsdSynch.c
 
-SRCS := acpi.c $(SRCS_ACPICA_CORE) $(SRCS_ACPICA_GLUE)
+SRCS_RUMP := \
+	acpi.c \
+	acpi_tables.c
+
+SRCS := $(SRCS_RUMP) $(SRCS_ACPICA_CORE) $(SRCS_ACPICA_GLUE)
 
 #OBJS := $(notdir $(SRCS))
 

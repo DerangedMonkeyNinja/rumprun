@@ -41,7 +41,7 @@
  * 6.10: Miscellaneous
  */
 
-#include <acpica.h>
+#include <rumprun-acpi/acpica.h>
 
 /*
  * AcpiOsSignal:

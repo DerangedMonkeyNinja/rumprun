@@ -77,7 +77,7 @@ extern int acpi_suspended;
 extern int cold;
 extern int doing_shutdown;
 
-#include <acpica.h>
+#include <rumprun-acpi/acpica.h>
 
 #define	_COMPONENT	ACPI_OS_SERVICES
 ACPI_MODULE_NAME("SYNCH")

@@ -1,8 +1,8 @@
 #include <bmk-core/platform.h>
 #include <bmk-core/printf.h>
 
-#include <acpica.h>
-#include <rumprun-acpica/acpi.h>
+#include <rumprun-acpi/acpica.h>
+#include <rumprun-acpi/acpi.h>
 
 static ACPI_TABLE_HEADER *
 acpi_map_rsdt(void)

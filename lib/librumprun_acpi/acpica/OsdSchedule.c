@@ -45,7 +45,7 @@
 #include <time.h>
 
 #include <bmk-core/sched.h>
-#include <acpica.h>
+#include <rumprun-acpi/acpica.h>
 
 void *rumpuser_curlwp(void);
 

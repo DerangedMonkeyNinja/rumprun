@@ -43,7 +43,7 @@
 #define _BMK_PRINTF_VA
 #include <bmk-core/printf.h>
 
-#include <acpica.h>
+#include <rumprun-acpi/acpica.h>
 
 /*
  * AcpiOsPrintf:

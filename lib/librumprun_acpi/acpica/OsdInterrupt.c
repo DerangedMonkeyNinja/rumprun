@@ -44,8 +44,8 @@
 #include <stdlib.h>
 #include <sys/queue.h>
 
-#include <acpica.h>
-#include <rumprun-acpica/acpi_machdep.h>
+#include <rumprun-acpi/acpica.h>
+#include <rumprun-acpi/acpi_machdep.h>
 
 #define	_COMPONENT	ACPI_OS_SERVICES
 ACPI_MODULE_NAME("INTERRUPT")
