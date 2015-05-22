@@ -158,6 +158,13 @@ bmk_cpu_init(void)
 	i8259_init();
 
 	/*
+	 * map clock interrupt.
+	 * note, it's still disabled in the PIC, we only enable it
+	 * during nanohlt
+	 */
+	fillgate(&idt[32], bmk_cpu_isr_clock);
+
+	/*
 	 * Figure out some information about our platform so we can pick
 	 * a reasonable clock to use...
 	 */
