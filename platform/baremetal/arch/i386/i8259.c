@@ -50,6 +50,13 @@ i8259_init(void)
 	outb(PIC2_DATA, ICW4_8086);
 	outb(PIC2_DATA, pic2mask);
 
+	/*
+	 * map clock interrupt.
+	 * note, it's still disabled in the PIC, we only enable it
+	 * during nanohlt
+	 */
+	fillgate(&idt[32], bmk_cpu_isr_clock);
+
 	/* Tell the system about this PIC */
 	bmk_pic_register(&i8259_pic);
 }
@@ -58,15 +65,21 @@ int
 i8259_intr_init(int intr)
 {
 
-	/* XXX: too lazy to keep PIC1 state */
-	if (intr < 8)
-		return BMK_EGENERIC;
-
 #define FILLGATE(n) case n: fillgate(&idt[32+n], bmk_cpu_isr_##n); break;
 	switch (intr) {
+		FILLGATE(1);
+		FILLGATE(2);
+		FILLGATE(3);
+		FILLGATE(4);
+		FILLGATE(5);
+		FILLGATE(6);
+		FILLGATE(7);
+		FILLGATE(8);
 		FILLGATE(9);
 		FILLGATE(10);
 		FILLGATE(11);
+		FILLGATE(12);
+		FILLGATE(13);
 		FILLGATE(14);
 		FILLGATE(15);
 	default:

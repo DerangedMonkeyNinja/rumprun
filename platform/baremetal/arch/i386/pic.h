@@ -2,7 +2,7 @@
 #define _RUMP_PIC_H_
 
 /*
- * Description for generic Programmable Interrupt Controller
+ * Description for a generic Programmable Interrupt Controller
  */
 struct pic {
 	char *pic_name;

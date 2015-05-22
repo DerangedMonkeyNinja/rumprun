@@ -6,9 +6,19 @@ void bmk_cpu_insr(void);
 
 /* actual interrupt service routines */
 void bmk_cpu_isr_clock(void);
+void bmk_cpu_isr_1(void);
+void bmk_cpu_isr_2(void);
+void bmk_cpu_isr_3(void);
+void bmk_cpu_isr_4(void);
+void bmk_cpu_isr_5(void);
+void bmk_cpu_isr_6(void);
+void bmk_cpu_isr_7(void);
+void bmk_cpu_isr_8(void);
 void bmk_cpu_isr_9(void);
 void bmk_cpu_isr_10(void);
 void bmk_cpu_isr_11(void);
+void bmk_cpu_isr_12(void);
+void bmk_cpu_isr_13(void);
 void bmk_cpu_isr_14(void);
 void bmk_cpu_isr_15(void);
 
