@@ -209,6 +209,7 @@ SRCS_ACPICA_GLUE := \
 
 SRCS_RUMP := \
 	acpi.c \
+	acpi_madt.c \
 	acpi_tables.c
 
 SRCS := $(SRCS_RUMP) $(SRCS_ACPICA_CORE) $(SRCS_ACPICA_GLUE)

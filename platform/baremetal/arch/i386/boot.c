@@ -37,6 +37,7 @@
 #include "tsc.h"
 
 unsigned long   bmk_cpu_frequency = 0;  /* for export via kernel.c */
+unsigned long	bmk_cpu_count = 0;
 
 void
 bmk_cpu_boot(struct multiboot_info *mbi)
@@ -47,6 +48,8 @@ bmk_cpu_boot(struct multiboot_info *mbi)
 
 #ifdef RUMP_ACPI
 	bmk_acpi_init();
+#else
+	bmk_cpu_count = 1;
 #endif
 
 	if (bmk_is_kvm_guest()) {

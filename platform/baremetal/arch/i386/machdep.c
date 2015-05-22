@@ -29,6 +29,10 @@
 #include <bmk-core/core.h>
 #include <bmk-core/sched.h>
 
+#include "idt.h"
+#include "i8259.h"
+#include "pic.h"
+
 /* enter the kernel with interrupts disabled */
 int bmk_spldepth = 1;
 
@@ -41,36 +45,14 @@ struct region_descriptor {
 	unsigned int rd_base:32;
 } __attribute__((__packed__));
 
-struct gate_descriptor {
-	unsigned gd_looffset:16;
-	unsigned gd_selector:16;
-	unsigned gd_stkcpy:5;
-	unsigned gd_xx:3;
-	unsigned gd_type:5;
-	unsigned gd_dpl:2;
-	unsigned gd_p:1;
-	unsigned gd_hioffset:16;
-} __attribute__((__packed__));
-
-static struct gate_descriptor idt[256];
-
-/* interrupt-not-service-routine */
-void bmk_cpu_insr(void);
-
-/* actual interrupt service routines */
-void bmk_cpu_isr_clock(void);
-void bmk_cpu_isr_9(void);
-void bmk_cpu_isr_10(void);
-void bmk_cpu_isr_11(void);
-void bmk_cpu_isr_14(void);
-void bmk_cpu_isr_15(void);
+struct gate_descriptor idt[256];
 
 /* clock routines */
 void bmk_init_tsc_tc(void);
 
 void bmk_cpu_identify(void);
 
-static void
+void
 fillgate(struct gate_descriptor *gd, void *fun)
 {
 
@@ -142,36 +124,6 @@ adjustgs(uintptr_t p)
 	__asm__ __volatile__("mov %0, %%gs" :: "r"(8*SEGMENT_GS));
 }
 
-#define PIC1_CMD	0x20
-#define PIC1_DATA	0x21
-#define PIC2_CMD	0xa0
-#define PIC2_DATA	0xa1
-#define ICW1_IC4	0x01	/* we're going to do the fourth write */
-#define ICW1_INIT	0x10
-#define ICW4_8086	0x01	/* use 8086 mode */
-
-static int pic2mask = 0xff;
-
-static void
-initpic(void)
-{
-
-	/*
-	 * init pic1: cycle is write to cmd followed by 3 writes to data
-	 */
-	outb(PIC1_CMD, ICW1_INIT | ICW1_IC4);
-	outb(PIC1_DATA, 32);	/* interrupts start from 32 in IDT */
-	outb(PIC1_DATA, 1<<2);	/* slave is at IRQ2 */
-	outb(PIC1_DATA, ICW4_8086);
-	outb(PIC1_DATA, 0xff & ~(1<<2));	/* unmask slave IRQ */
-
-	/* do the slave PIC */
-	outb(PIC2_CMD, ICW1_INIT | ICW1_IC4);
-	outb(PIC2_DATA, 32+8);	/* interrupts start from 40 in IDT */
-	outb(PIC2_DATA, 2);	/* interrupt at irq 2 */
-	outb(PIC2_DATA, ICW4_8086);
-	outb(PIC2_DATA, pic2mask);
-}
 
 /*
  * This routine fills out the interrupt descriptors so that
@@ -203,7 +155,7 @@ bmk_cpu_init(void)
 		fillgate(&idt[i], bmk_cpu_insr);
 	}
 
-	initpic();
+	i8259_init();
 
 	/*
 	 * map clock interrupt.
@@ -222,42 +174,13 @@ bmk_cpu_init(void)
 int
 bmk_cpu_intr_init(int intr)
 {
-
-	/* XXX: too lazy to keep PIC1 state */
-	if (intr < 8)
-		return BMK_EGENERIC;
-
-#define FILLGATE(n) case n: fillgate(&idt[32+n], bmk_cpu_isr_##n); break;
-	switch (intr) {
-		FILLGATE(9);
-		FILLGATE(10);
-		FILLGATE(11);
-		FILLGATE(14);
-		FILLGATE(15);
-	default:
-		return BMK_EGENERIC;
-	}
-#undef FILLGATE
-
-	/* unmask interrupt in PIC */
-	pic2mask &= ~(1<<(intr-8));
-	outb(PIC2_DATA, pic2mask);
-
-	return 0;
+	return bmk_pic_intr_init(intr);
 }
 
 void
 bmk_cpu_intr_ack(void)
 {
-
-	/*
-	 * ACK interrupts on PIC
-	 */
-	__asm__ __volatile(
-	    "movb $0x20, %%al\n"
-	    "outb %%al, $0xa0\n"
-	    "outb %%al, $0x20\n"
-	    ::: "al");
+	bmk_pic_intr_ack();
 }
 
 uint64_t
@@ -281,9 +204,9 @@ bmk_cpu_nanohlt(void)
 	/*
 	 * Enable clock interrupt and wait for the next whichever interrupt
 	 */
-	outb(PIC1_DATA, 0xff & ~(1<<2|1<<0));
+	bmk_pic_intr_unmask(0);
 	hlt();
-	outb(PIC1_DATA, 0xff & ~(1<<2));
+	bmk_pic_intr_mask(0);
 }
 
 void

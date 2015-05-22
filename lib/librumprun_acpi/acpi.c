@@ -3,6 +3,7 @@
 
 #include <rumprun-acpi/acpica.h>
 #include <rumprun-acpi/acpi.h>
+#include <rumprun-acpi/acpi_utils.h>
 
 static ACPI_TABLE_HEADER *
 acpi_map_rsdt(void)
@@ -93,6 +94,8 @@ int bmk_acpi_init(void)
 	    rsdt->AslCompilerRevision);
 
 	acpi_unmap_rsdt(rsdt);
+
+	bmk_acpi_table_walk(ACPI_SIG_MADT, bmk_dump_madt_header);
 
 	rv = AcpiEnableSubsystem(ACPI_FULL_INITIALIZATION);
 	if (ACPI_FAILURE(rv)) {

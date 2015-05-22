@@ -3,6 +3,7 @@
 #include <bmk-core/platform.h>
 
 #include <rumprun-acpi/acpi.h>
+#include <rumprun-acpi/acpi_utils.h>
 
 static
 size_t acpi_get_table_size(const char *sig)
