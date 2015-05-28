@@ -50,8 +50,25 @@ i8259_init(void)
 	outb(PIC2_DATA, ICW4_8086);
 	outb(PIC2_DATA, pic2mask);
 
+	/*
+	 * map clock interrupt at IRQ 0.
+	 * note, it's still disabled in the PIC, we only enable it
+	 * during nanohlt
+	 */
+	fillgate(&idt[32], bmk_cpu_isr_clock);
+
 	/* Tell the system about this PIC */
 	bmk_pic_register(&i8259_pic);
+}
+
+void
+i8259_set_mask(uint16_t mask)
+{
+	pic1mask = mask & 0xff;
+	pic2mask = mask >> 8;
+
+	outb(PIC1_DATA, pic1mask);
+	outb(PIC2_DATA, pic2mask);
 }
 
 int

@@ -6,6 +6,7 @@ void bmk_cpu_insr(void);
 
 /* actual interrupt service routines */
 void bmk_cpu_isr_clock(void);
+void bmk_cpu_isr_0(void);
 void bmk_cpu_isr_1(void);
 void bmk_cpu_isr_2(void);
 void bmk_cpu_isr_3(void);
@@ -21,6 +22,14 @@ void bmk_cpu_isr_12(void);
 void bmk_cpu_isr_13(void);
 void bmk_cpu_isr_14(void);
 void bmk_cpu_isr_15(void);
+void bmk_cpu_isr_16(void);
+void bmk_cpu_isr_17(void);
+void bmk_cpu_isr_18(void);
+void bmk_cpu_isr_19(void);
+void bmk_cpu_isr_20(void);
+void bmk_cpu_isr_21(void);
+void bmk_cpu_isr_22(void);
+void bmk_cpu_isr_23(void);
 
 struct gate_descriptor {
 	unsigned gd_looffset:16;

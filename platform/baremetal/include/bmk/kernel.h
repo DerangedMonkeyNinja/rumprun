@@ -25,6 +25,7 @@ void bmk_cpu_init(void);
 void bmk_cpu_nanohlt(void);
 int bmk_cpu_intr_init(int);
 void bmk_cpu_intr_ack(void);
+void bmk_cpu_intr_unmask(int);
 
 bmk_time_t bmk_cpu_clock_now(void);
 uint64_t bmk_cpu_counter(void);

@@ -114,34 +114,37 @@ END(bmk_cpu_insr)
 ENTRY(bmk_cpu_isr_clock)
 	cli
 	call bmk_isr_clock
-	movb $0x20, %al
-	outb %al, $0x20
+  call bmk_pic_intr_ack
 	sti
 	iret
 END(bmk_cpu_isr_clock)
 
 /*
  * Macro to define interrupt stub to call C handler.
- * note: interrupt is acked on the PIC as part of bmk_isr
+ * note: interrupt is acked and unmasked as part of bmk_isr
  */
-#define INTRSTUB(intnum)						\
-ENTRY(bmk_cpu_isr_##intnum)						\
-	cli								;\
-	pushl %eax							;\
-	pushl %ebx							;\
-	pushl %ecx							;\
-	pushl %edx							;\
-	pushl $intnum							;\
-	call bmk_isr							;\
-	addl $4, %esp							;\
-	popl %edx							;\
-	popl %ecx							;\
-	popl %ebx							;\
-	popl %eax							;\
-	sti								;\
-	iret								;\
+#define INTRSTUB(intnum)         \
+ENTRY(bmk_cpu_isr_##intnum)      \
+        cli                     ;\
+        pushl %eax              ;\
+        pushl %ebx              ;\
+        pushl %ecx              ;\
+        pushl %edx              ;\
+        pushl $intnum           ;\
+        call bmk_pic_intr_mask  ;\
+        addl $4, %esp           ;\
+        pushl $intnum           ;\
+        call bmk_isr            ;\
+        addl $4, %esp           ;\
+        popl %edx               ;\
+        popl %ecx               ;\
+        popl %ebx               ;\
+        popl %eax               ;\
+        sti                     ;\
+        iret                    ;\
 END(bmk_cpu_isr_##intnum)
 
+INTRSTUB(0)
 INTRSTUB(1)
 INTRSTUB(2)
 INTRSTUB(3)
@@ -157,6 +160,14 @@ INTRSTUB(12)
 INTRSTUB(13)
 INTRSTUB(14)
 INTRSTUB(15)
+INTRSTUB(16)
+INTRSTUB(17)
+INTRSTUB(18)
+INTRSTUB(19)
+INTRSTUB(20)
+INTRSTUB(21)
+INTRSTUB(22)
+INTRSTUB(23)
 
 /*
  * Enable/disable interrupts

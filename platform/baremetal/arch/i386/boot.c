@@ -31,6 +31,7 @@
 #include <bmk-core/sched.h>
 #ifdef RUMP_ACPI
 #include <rumprun-acpi/acpi.h>
+#include "mpacpi.h"
 #endif
 
 #include "kvm.h"
@@ -48,6 +49,7 @@ bmk_cpu_boot(struct multiboot_info *mbi)
 
 #ifdef RUMP_ACPI
 	bmk_acpi_init();
+	mpacpi_init();
 #else
 	bmk_cpu_count = 1;
 #endif

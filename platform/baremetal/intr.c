@@ -80,8 +80,10 @@ isr(void *arg)
 
 				rumpkern_sched(nlocks, NULL);
 				SLIST_FOREACH(ih, &isr_ih[i], ih_entries) {
-					if ((rv = ih->ih_fun(ih->ih_arg)) != 0)
+					if ((rv = ih->ih_fun(ih->ih_arg)) != 0) {
+						bmk_cpu_intr_unmask(i);
 						break;
+					}
 				}
 				rumpkern_unsched(&nlocks, NULL);
 			}

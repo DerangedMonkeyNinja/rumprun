@@ -158,13 +158,6 @@ bmk_cpu_init(void)
 	i8259_init();
 
 	/*
-	 * map clock interrupt.
-	 * note, it's still disabled in the PIC, we only enable it
-	 * during nanohlt
-	 */
-	fillgate(&idt[32], bmk_cpu_isr_clock);
-
-	/*
 	 * Figure out some information about our platform so we can pick
 	 * a reasonable clock to use...
 	 */
@@ -181,6 +174,12 @@ void
 bmk_cpu_intr_ack(void)
 {
 	bmk_pic_intr_ack();
+}
+
+void
+bmk_cpu_intr_unmask(int intr)
+{
+	bmk_pic_intr_unmask(intr);
 }
 
 uint64_t
@@ -205,7 +204,7 @@ bmk_cpu_nanohlt(void)
 	 * Enable clock interrupt and wait for the next whichever interrupt
 	 */
 	bmk_pic_intr_unmask(0);
-	hlt();
+        hlt();
 	bmk_pic_intr_mask(0);
 }
 

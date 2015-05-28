@@ -5,7 +5,7 @@ OBJS_BMK+=	arch/i386/timer.o arch/i386/identcpu.o arch/i386/tsc.o \
 OBJS_BMK+=	arch/i386/pic.o arch/i386/i8259.o
 
 ifeq ($(HASACPI), y)
-OBJS_BMK+=	arch/i386/acpi_machdep.o
+OBJS_BMK+=	arch/i386/acpi_machdep.o arch/i386/mpacpi.o arch/i386/ioapic.o arch/i386/lapic.o
 endif
 
 LDSCRIPT=	arch/i386/kern.ldscript
